@@ -1,0 +1,433 @@
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { randomInt } = require('crypto');
+const { nanoid } = require('nanoid');
+const db = require('../db');
+const { publicRaffle, verifyUploadedImage, handleUpload } = require('../utils');
+const { reportLockout } = require('../alerts');
+
+const router = express.Router();
+
+// Used to equalize login response time whether or not the username exists -
+// see the timing-safety comment on the /login handler below.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-password-just-for-timing', 10);
+
+// ---- Car photo upload (raffle images) ----
+const carPhotosDir = path.join(__dirname, '..', '..', 'uploads', 'cars');
+if (!fs.existsSync(carPhotosDir)) fs.mkdirSync(carPhotosDir, { recursive: true });
+
+const carPhotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, carPhotosDir),
+  filename: (req, file, cb) => {
+    // Same whitelist approach as receipt uploads in public.js - never trust
+    // a client-supplied filename/extension directly.
+    const rawExt = path.extname(file.originalname).toLowerCase();
+    const ext = /^\.(jpg|jpeg|png|gif|webp)$/.test(rawExt) ? rawExt : '.jpg';
+    cb(null, `${Date.now()}_${nanoid(6)}${ext}`);
+  }
+});
+const uploadCarPhoto = multer({
+  storage: carPhotoStorage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed for car photos'));
+  }
+});
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.adminId) return next();
+  return res.status(401).json({ error: 'Not authenticated' });
+}
+
+// ---- Login brute-force protection ----
+// Two layers, since each catches a different attack shape:
+// 1. Per-IP sliding window - slows down a single scripted attacker hammering
+//    many usernames/passwords from one machine. In-memory only (resets on
+//    restart) since it's meant to throttle a live attack, not act as a
+//    permanent ban list.
+// 2. Per-account lockout - protects a specific admin account even if the
+//    attacker spreads attempts across many IPs/botnets. Persisted in
+//    data/db.json so it survives restarts.
+const LOGIN_IP_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_IP_MAX_ATTEMPTS = 20;
+const loginAttemptsByIp = new Map(); // ip -> { count, windowStart }
+
+function isIpRateLimited(ip) {
+  const now = Date.now();
+  const entry = loginAttemptsByIp.get(ip);
+  if (!entry || now - entry.windowStart > LOGIN_IP_WINDOW_MS) {
+    loginAttemptsByIp.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > LOGIN_IP_MAX_ATTEMPTS;
+}
+
+const ACCOUNT_MAX_FAILED_ATTEMPTS = 5;
+const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
+
+// ---- Auth ----
+router.post('/login', (req, res) => {
+  if (isIpRateLimited(req.ip)) {
+    reportLockout(`ip:${req.ip}`, `IP ${req.ip} exceeded ${LOGIN_IP_MAX_ATTEMPTS} login attempts in ${LOGIN_IP_WINDOW_MS / 60000} minutes.`);
+    return res.status(429).json({ error: 'Too many login attempts from this network. Please try again later.' });
+  }
+
+  const { username, password } = req.body;
+  const data = db.load();
+  const admin = data.admins.find(a => a.username === username);
+
+  // Locked accounts are rejected before checking the password at all, so a
+  // correct password doesn't quietly bypass the lockout.
+  if (admin && admin.lockedUntil && new Date(admin.lockedUntil).getTime() > Date.now()) {
+    const minsLeft = Math.max(1, Math.ceil((new Date(admin.lockedUntil).getTime() - Date.now()) / 60000));
+    return res.status(429).json({ error: `Account temporarily locked after repeated failed logins. Try again in ${minsLeft} minute(s).` });
+  }
+
+  // Always run bcrypt against *something*, even when the username doesn't
+  // exist, and only branch on the result afterwards. bcrypt.compareSync is
+  // deliberately slow (~50-100ms at cost factor 10) - short-circuiting past
+  // it for unknown usernames would make existing-vs-nonexistent accounts
+  // distinguishable purely by response time, even though the error message
+  // below is identical either way.
+  const passwordMatches = bcrypt.compareSync(password || '', admin ? admin.passwordHash : DUMMY_PASSWORD_HASH);
+  const valid = !!admin && passwordMatches;
+  if (!valid) {
+    if (admin) {
+      admin.failedLoginAttempts = (admin.failedLoginAttempts || 0) + 1;
+      if (admin.failedLoginAttempts >= ACCOUNT_MAX_FAILED_ATTEMPTS) {
+        admin.lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MS).toISOString();
+        admin.failedLoginAttempts = 0;
+        db.save(data);
+        reportLockout(`account:${admin.username}`, `Admin account "${admin.username}" locked for 15 minutes after ${ACCOUNT_MAX_FAILED_ATTEMPTS} failed login attempts (from IP ${req.ip}).`);
+        return res.status(429).json({ error: 'Too many failed attempts. This account is locked for 15 minutes.' });
+      }
+      db.save(data);
+    }
+    // Same generic message whether the username doesn't exist or the
+    // password is wrong, so login can't be used to enumerate valid usernames.
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  admin.failedLoginAttempts = 0;
+  admin.lockedUntil = null;
+  db.save(data);
+  req.session.adminId = admin.id;
+  res.json({ ok: true, username: admin.username });
+});
+
+router.post('/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+router.get('/me', (req, res) => {
+  if (!req.session.adminId) return res.status(401).json({ error: 'Not authenticated' });
+  const data = db.load();
+  const admin = data.admins.find(a => a.id === req.session.adminId);
+  if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+  res.json({ username: admin.username });
+});
+
+router.post('/change-password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+  const data = db.load();
+  const admin = data.admins.find(a => a.id === req.session.adminId);
+  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+  admin.passwordHash = bcrypt.hashSync(newPassword, 10);
+  db.save(data);
+  res.json({ ok: true });
+});
+
+router.post('/change-username', requireAuth, (req, res) => {
+  const { currentPassword, newUsername } = req.body;
+  const data = db.load();
+  const admin = data.admins.find(a => a.id === req.session.adminId);
+
+  // Require the current password before changing the username, same as
+  // change-password - otherwise an unattended/hijacked logged-in session
+  // could silently take over the account identity without knowing the
+  // credentials, which would also let someone lock the real admin out by
+  // renaming the account they think they're logging into.
+  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const trimmed = String(newUsername || '').trim();
+  if (!trimmed) {
+    return res.status(400).json({ error: 'New username is required' });
+  }
+  if (trimmed.length < 3 || trimmed.length > 32) {
+    return res.status(400).json({ error: 'Username must be between 3 and 32 characters' });
+  }
+  // Whitelist characters - a username is later rendered as plain text in
+  // the admin UI (safe either way via textContent), but also flows into
+  // login lookups, so keep it to a predictable, unambiguous character set.
+  if (!/^[a-zA-Z0-9_.-]+$/.test(trimmed)) {
+    return res.status(400).json({ error: 'Username can only contain letters, numbers, underscores, dots, and hyphens' });
+  }
+  // Case-insensitive uniqueness check. Only one admin exists today, but this
+  // keeps the check correct if multi-admin support is added later, and
+  // stops a same-letters-different-case "change" from silently no-op'ing.
+  const clash = data.admins.find(a => a.id !== admin.id && a.username.toLowerCase() === trimmed.toLowerCase());
+  if (clash) {
+    return res.status(409).json({ error: 'That username is already taken' });
+  }
+
+  admin.username = trimmed;
+  db.save(data);
+  res.json({ ok: true, username: admin.username });
+});
+
+// everything below requires auth
+router.use(requireAuth);
+
+// ---- Dashboard summary ----
+router.get('/summary', (req, res) => {
+  const data = db.load();
+  const totalOrders = data.orders.length;
+  const pendingOrders = data.orders.filter(o => o.status === 'pending').length;
+  const confirmedOrders = data.orders.filter(o => o.status === 'confirmed').length;
+  const revenue = data.orders
+    .filter(o => o.status === 'confirmed')
+    .reduce((sum, o) => sum + o.total, 0);
+  res.json({
+    raffleCount: data.raffles.length,
+    totalOrders, pendingOrders, confirmedOrders, revenue
+  });
+});
+
+// ---- Raffles CRUD ----
+router.get('/raffles', (req, res) => {
+  const data = db.load();
+  res.json({ raffles: data.raffles.map(r => ({ ...publicRaffle(r), takenNumbers: r.takenNumbers })) });
+});
+
+// Upload a car photo -> returns { imageUrl } to plug into raffle create/edit.
+// Kept as its own step (rather than bundled into raffle create/edit) so the
+// admin form can show a preview immediately and so raffle create/edit can
+// stay simple JSON instead of multipart.
+router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
+  // Same reasoning as the receipt upload in public.js - the client-declared
+  // mimetype fileFilter checked isn't proof of what was actually written to
+  // disk, so confirm the real file signature before trusting it.
+  verifyUploadedImage(req.file.path, (verifyErr) => {
+    if (verifyErr) return res.status(400).json({ error: verifyErr.message });
+    const imageUrl = `/uploads/cars/${req.file.filename}`;
+    res.json({ imageUrl });
+  });
+});
+
+router.post('/raffles', (req, res) => {
+  const { title, subtitle, imageUrl, price, totalNumbers, drawAt, badge, rating } = req.body;
+  if (!title || !String(title).trim()) {
+    return res.status(400).json({ error: 'title is required' });
+  }
+  // Same coercion/validation as PUT /raffles/:id - a truthy check alone
+  // (the previous `!price || !totalNumbers`) lets non-numeric strings like
+  // "abc" through, which Number() then turns into NaN and silently corrupts
+  // every downstream total (order totals, revenue, the number grid).
+  const priceNum = Number(price);
+  if (price === undefined || price === null || price === '' || !Number.isFinite(priceNum) || priceNum <= 0) {
+    return res.status(400).json({ error: 'price must be a positive number' });
+  }
+  const totalNumbersNum = Number(totalNumbers);
+  if (totalNumbers === undefined || totalNumbers === null || totalNumbers === '' || !Number.isInteger(totalNumbersNum) || totalNumbersNum <= 0) {
+    return res.status(400).json({ error: 'totalNumbers must be a positive integer' });
+  }
+  let ratingNum = 5.0;
+  if (rating !== undefined && rating !== null && rating !== '') {
+    ratingNum = Number(rating);
+    if (!Number.isFinite(ratingNum) || ratingNum < 0 || ratingNum > 5) {
+      return res.status(400).json({ error: 'rating must be between 0 and 5' });
+    }
+  }
+  const data = db.load();
+  const raffle = {
+    id: nanoid(8),
+    title, subtitle: subtitle || '', imageUrl: imageUrl || '',
+    price: priceNum, totalNumbers: totalNumbersNum,
+    rating: ratingNum,
+    status: 'active', badge: badge || 'none',
+    drawAt: drawAt || new Date(Date.now() + 9 * 24 * 60 * 60 * 1000).toISOString(),
+    takenNumbers: [], pending: {},
+    createdAt: new Date().toISOString()
+  };
+  data.raffles.push(raffle);
+  db.save(data);
+  res.status(201).json({ raffle });
+});
+
+router.put('/raffles/:id', (req, res) => {
+  const data = db.load();
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+
+  // Numeric fields must actually be coerced/validated here, the same as on
+  // create - otherwise a client sending e.g. price as "" or a non-numeric
+  // string would silently corrupt raffle.price into NaN, which then breaks
+  // every total calculation downstream (order totals, revenue, etc).
+  if (req.body.price !== undefined) {
+    const price = Number(req.body.price);
+    if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'price must be a positive number' });
+    raffle.price = price;
+  }
+  if (req.body.totalNumbers !== undefined) {
+    const totalNumbers = Number(req.body.totalNumbers);
+    if (!Number.isInteger(totalNumbers) || totalNumbers <= 0) return res.status(400).json({ error: 'totalNumbers must be a positive integer' });
+    // Never let totalNumbers shrink below tickets already sold/reserved -
+    // that would silently strand existing buyers' numbers outside the
+    // valid range and break number-grid rendering.
+    const highestHeld = Math.max(0, ...raffle.takenNumbers, ...Object.keys(raffle.pending || {}).map(Number));
+    if (totalNumbers < highestHeld) {
+      return res.status(400).json({ error: `totalNumbers can't be less than the highest ticket already sold/reserved (${highestHeld})` });
+    }
+    raffle.totalNumbers = totalNumbers;
+  }
+  if (req.body.rating !== undefined) {
+    const rating = Number(req.body.rating);
+    if (!Number.isFinite(rating) || rating < 0 || rating > 5) return res.status(400).json({ error: 'rating must be between 0 and 5' });
+    raffle.rating = rating;
+  }
+  const passthroughFields = ['title', 'subtitle', 'imageUrl', 'drawAt', 'badge', 'status'];
+  for (const f of passthroughFields) {
+    if (req.body[f] !== undefined) raffle[f] = req.body[f];
+  }
+  db.save(data);
+  res.json({ raffle });
+});
+
+router.delete('/raffles/:id', (req, res) => {
+  const data = db.load();
+  const idx = data.raffles.findIndex(r => r.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Raffle not found' });
+  data.raffles.splice(idx, 1);
+
+  // Cascade delete: an order for a raffle that no longer exists has nothing
+  // left to point back to - no car, no numbers, no draw - and previously it
+  // just lingered forever as an "Unknown" entry in the buyer's "My Tickets"
+  // list. The frontend's confirm dialog already tells the admin this
+  // deletes "all its data", so actually do that.
+  const orphanedOrders = data.orders.filter(o => o.raffleId === req.params.id);
+  data.orders = data.orders.filter(o => o.raffleId !== req.params.id);
+
+  const uploadsRoot = path.join(__dirname, '..', '..', 'uploads');
+  for (const order of orphanedOrders) {
+    if (!order.receiptPath) continue;
+    const filePath = path.join(uploadsRoot, order.receiptPath.replace(/^\/uploads\//, ''));
+    // Best-effort cleanup - a missing/already-gone file shouldn't block the
+    // raffle deletion itself.
+    fs.unlink(filePath, () => {});
+  }
+
+  db.save(data);
+  res.json({ ok: true, removedOrders: orphanedOrders.length });
+});
+
+// ---- Orders queue + approval ----
+router.get('/orders', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const status = req.query.status;
+  let orders = data.orders.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  if (status) orders = orders.filter(o => o.status === status);
+  orders = orders.map(o => {
+    const raffle = data.raffles.find(r => r.id === o.raffleId);
+    return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown' };
+  });
+  res.json({ orders });
+});
+
+router.post('/orders/:id/approve', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status !== 'pending') return res.status(400).json({ error: `Cannot approve order in status ${order.status}` });
+
+  const raffle = data.raffles.find(r => r.id === order.raffleId);
+  if (raffle) {
+    for (const n of order.ticketNumbers) {
+      delete raffle.pending[String(n)];
+      if (!raffle.takenNumbers.includes(n)) raffle.takenNumbers.push(n);
+    }
+  }
+  order.status = 'confirmed';
+  order.confirmedAt = new Date().toISOString();
+  db.save(data);
+  res.json({ order });
+});
+
+router.post('/orders/:id/reject', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!['pending', 'awaiting_payment'].includes(order.status)) {
+    return res.status(400).json({ error: `Cannot reject order in status ${order.status}` });
+  }
+  const raffle = data.raffles.find(r => r.id === order.raffleId);
+  if (raffle) {
+    for (const n of order.ticketNumbers) delete raffle.pending[String(n)];
+  }
+  order.status = 'rejected';
+  order.rejectedReason = req.body.reason || null;
+  order.rejectedAt = new Date().toISOString();
+  db.save(data);
+  res.json({ order });
+});
+
+// ---- Banks ----
+router.get('/banks', (req, res) => {
+  const data = db.load();
+  res.json({ banks: data.banks });
+});
+
+router.post('/banks', (req, res) => {
+  const { name, holder, account } = req.body;
+  if (!name || !account) return res.status(400).json({ error: 'name and account are required' });
+  const data = db.load();
+  const bank = { id: nanoid(6), name, holder: holder || '', account };
+  data.banks.push(bank);
+  db.save(data);
+  res.status(201).json({ bank });
+});
+
+router.delete('/banks/:id', (req, res) => {
+  const data = db.load();
+  const idx = data.banks.findIndex(b => b.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Bank not found' });
+  data.banks.splice(idx, 1);
+  db.save(data);
+  res.json({ ok: true });
+});
+
+// ---- Winner draw (pick random confirmed ticket) ----
+router.post('/raffles/:id/draw', (req, res) => {
+  const data = db.load();
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+  const confirmedOrders = data.orders.filter(o => o.raffleId === raffle.id && o.status === 'confirmed');
+  const pool = [];
+  confirmedOrders.forEach(o => o.ticketNumbers.forEach(n => pool.push({ number: n, order: o })));
+  if (pool.length === 0) return res.status(400).json({ error: 'No confirmed tickets to draw from' });
+  // crypto.randomInt, not Math.random() - this is the actual "who wins the
+  // car" moment, so it should be a CSPRNG rather than a non-cryptographic
+  // PRNG that (in principle) someone could try to argue was predictable.
+  const winner = pool[randomInt(0, pool.length)];
+  raffle.winner = { number: winner.number, orderId: winner.order.id, fullName: winner.order.fullName, phone: winner.order.phone, drawnAt: new Date().toISOString() };
+  raffle.status = 'ended';
+  db.save(data);
+  res.json({ winner: raffle.winner });
+});
+
+module.exports = router;

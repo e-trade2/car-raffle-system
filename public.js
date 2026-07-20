@@ -1,0 +1,361 @@
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { nanoid } = require('nanoid');
+const db = require('../db');
+const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload } = require('../utils');
+const { reportLockout } = require('../alerts');
+
+const router = express.Router();
+
+const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    // Only trust a short whitelist of characters in the extension - a raw
+    // client-supplied filename (e.g. crafted via curl, not a real browser
+    // file picker) can otherwise smuggle quotes/angle-brackets onto disk.
+    const rawExt = path.extname(file.originalname).toLowerCase();
+    const ext = /^\.(jpg|jpeg|png|gif|webp|heic|heif)$/.test(rawExt) ? rawExt : '.jpg';
+    cb(null, `${Date.now()}_${nanoid(6)}${ext}`);
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed for receipts'));
+  }
+});
+
+// ---- Abuse throttling ----
+// Order creation reserves numbers for RESERVE_MINUTES with no payment yet -
+// with no limit, one script looping this endpoint could hold the entire
+// pool "reserved" indefinitely (renewing before each reservation expires)
+// and make a live raffle look sold out to real buyers. Same sliding-window
+// shape as the admin login limiter in routes/admin.js, just scoped to a
+// different key per limiter instance.
+function makeIpRateLimiter(windowMs, maxAttempts) {
+  const attemptsByIp = new Map();
+  return function isRateLimited(ip) {
+    const now = Date.now();
+    const entry = attemptsByIp.get(ip);
+    if (!entry || now - entry.windowStart > windowMs) {
+      attemptsByIp.set(ip, { count: 1, windowStart: now });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > maxAttempts;
+  };
+}
+
+const ORDER_CREATE_WINDOW_MS = 15 * 60 * 1000;
+const ORDER_CREATE_MAX_ATTEMPTS = 10; // ~1 every 90s sustained - generous for a real buyer, tight for a scripted loop
+const isOrderCreateRateLimited = makeIpRateLimiter(ORDER_CREATE_WINDOW_MS, ORDER_CREATE_MAX_ATTEMPTS);
+
+const PAYMENT_UPLOAD_WINDOW_MS = 15 * 60 * 1000;
+const PAYMENT_UPLOAD_MAX_ATTEMPTS = 15; // a bit looser - legit users may retry a failed upload
+const isPaymentUploadRateLimited = makeIpRateLimiter(PAYMENT_UPLOAD_WINDOW_MS, PAYMENT_UPLOAD_MAX_ATTEMPTS);
+
+// GET /tickets takes an arbitrary phone number and, with no auth, returns
+// every order for it - full name, ticket numbers, order total, and a link
+// to the uploaded payment receipt image. Unlike the write endpoints above,
+// this had no throttle at all, so it was the one place in this file where
+// a script could sit in a loop trying phone numbers and scrape other
+// buyers' order/receipt data. Same sliding-window shape as the others,
+// just looser since a real buyer may legitimately re-check their tickets
+// several times in a session (e.g. after each of several purchases).
+const TICKETS_LOOKUP_WINDOW_MS = 15 * 60 * 1000;
+const TICKETS_LOOKUP_MAX_ATTEMPTS = 20;
+const isTicketsLookupRateLimited = makeIpRateLimiter(TICKETS_LOOKUP_WINDOW_MS, TICKETS_LOOKUP_MAX_ATTEMPTS);
+
+// Keyed on the phone number itself rather than the requesting IP - the
+// per-IP limiter above doesn't catch someone spreading requests for one
+// specific target phone number across many IPs (cheap to do with rotating
+// proxies). This doesn't stop enumeration that spreads *both* across many
+// phone numbers *and* many IPs at a low rate per pair - nothing short of
+// verifying the requester actually owns the phone number (e.g. an SMS OTP
+// step) closes that gap. Tighter than the per-IP limit since a real buyer
+// re-checking their own tickets a handful of times a session is normal;
+// two dozen lookups for the same number in 15 minutes is not.
+const TICKETS_LOOKUP_PHONE_WINDOW_MS = 15 * 60 * 1000;
+const TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS = 8;
+const isTicketsLookupPhoneRateLimited = makeIpRateLimiter(TICKETS_LOOKUP_PHONE_WINDOW_MS, TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS);
+
+// Admin re-opens receipts repeatedly while working through the orders
+// queue, so this is looser than the lookup limiters above - it's here as
+// cheap insurance (e.g. against a leaked/stolen admin session cookie being
+// used to script through every receipt on file), not as the primary
+// control, since the route below already requires an admin session.
+const RECEIPT_VIEW_WINDOW_MS = 15 * 60 * 1000;
+const RECEIPT_VIEW_MAX_ATTEMPTS = 60;
+const isReceiptViewRateLimited = makeIpRateLimiter(RECEIPT_VIEW_WINDOW_MS, RECEIPT_VIEW_MAX_ATTEMPTS);
+
+const RESERVE_MINUTES = 30;
+
+// ---- List raffles ----
+router.get('/raffles', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const list = data.raffles.map(publicRaffle);
+  res.json({ raffles: list });
+});
+
+// ---- Raffle detail ----
+router.get('/raffles/:id', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+  res.json({ raffle: publicRaffle(raffle) });
+});
+
+// ---- Numbers grid for a raffle (status per number) ----
+router.get('/raffles/:id/numbers', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+
+  // Specific-numbers lookup (e.g. "is number 348 still mine, still taken,
+  // or free again?") - used by the ticket history view for expired/rejected
+  // orders, so it doesn't have to pull a whole page range just to check a
+  // handful of scattered numbers.
+  if (req.query.nums) {
+    const requested = String(req.query.nums)
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => Number.isInteger(n) && n >= 1 && n <= raffle.totalNumbers);
+    const numbers = requested.map(n => ({ n, status: numberStatus(raffle, n) }));
+    return res.json({ numbers, totalNumbers: raffle.totalNumbers });
+  }
+
+  const start = Math.max(1, parseInt(req.query.start) || 1);
+  const end = Math.min(raffle.totalNumbers, parseInt(req.query.end) || Math.min(raffle.totalNumbers, start + 199));
+
+  const numbers = [];
+  for (let n = start; n <= end; n++) {
+    numbers.push({ n, status: numberStatus(raffle, n) });
+  }
+  res.json({ numbers, totalNumbers: raffle.totalNumbers });
+});
+
+// ---- Step 1: create order (reserve numbers, pending payment) ----
+router.post('/orders', (req, res) => {
+  if (isOrderCreateRateLimited(req.ip)) {
+    reportLockout(`order-create-ip:${req.ip}`, `IP ${req.ip} exceeded ${ORDER_CREATE_MAX_ATTEMPTS} order-creation attempts in ${ORDER_CREATE_WINDOW_MS / 60000} minutes - possible ticket-hoarding/inventory-exhaustion abuse.`);
+    return res.status(429).json({ error: 'Too many order attempts from this network. Please wait a bit and try again.' });
+  }
+  const { raffleId, quantity, numbers, fullName, phone, mode } = req.body;
+  if (!raffleId || !fullName || !phone) {
+    return res.status(400).json({ error: 'raffleId, fullName and phone are required' });
+  }
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const raffle = data.raffles.find(r => r.id === raffleId);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+  if (raffle.status !== 'active') return res.status(400).json({ error: 'This raffle is not active' });
+
+  let qty = parseInt(quantity) || (Array.isArray(numbers) ? numbers.length : 1);
+  qty = Math.max(1, Math.min(qty, 20));
+
+  let selected;
+  if (mode === 'manual') {
+    if (!Array.isArray(numbers) || numbers.length !== qty) {
+      return res.status(400).json({ error: 'Selected numbers must match the quantity' });
+    }
+    // Coerce to real integers before any validation. numberStatus() compares
+    // against takenNumbers with strict equality, so a raw API call passing
+    // numbers as strings (e.g. ["348"]) would otherwise silently skip the
+    // "already taken" check - .includes("348") never matches a stored 348.
+    const normalized = numbers.map(n => Number.parseInt(n, 10));
+    if (normalized.some(n => !Number.isInteger(n) || n < 1 || n > raffle.totalNumbers)) {
+      return res.status(400).json({ error: 'Selected numbers are invalid' });
+    }
+    if (new Set(normalized).size !== normalized.length) {
+      return res.status(400).json({ error: 'Duplicate numbers in selection' });
+    }
+    for (const n of normalized) {
+      if (numberStatus(raffle, n) !== 'available') {
+        return res.status(409).json({ error: `Number ${n} is no longer available`, conflict: n });
+      }
+    }
+    selected = normalized;
+  } else {
+    selected = randomAvailableNumbers(raffle, qty);
+    if (selected.length < qty) {
+      return res.status(409).json({ error: 'Not enough tickets remaining' });
+    }
+  }
+
+  // Same customer id every time this phone number orders again - it's
+  // issued once per phone, not once per order, so a repeat buyer's old id
+  // still works after a later purchase.
+  const customer = db.getOrCreateCustomer(data, phone);
+
+  const order = {
+    id: nanoid(10),
+    raffleId,
+    ticketNumbers: selected,
+    quantity: qty,
+    unitPrice: raffle.price,
+    total: raffle.price * qty,
+    fullName,
+    phone,
+    customerId: customer.id,
+    status: 'awaiting_payment', // awaiting_payment -> pending (receipt uploaded) -> confirmed / rejected / expired
+    bankSelected: null,
+    receiptPath: null,
+    createdAt: new Date().toISOString(),
+    reservedUntil: new Date(Date.now() + RESERVE_MINUTES * 60 * 1000).toISOString()
+  };
+
+  raffle.pending = raffle.pending || {};
+  for (const n of selected) {
+    raffle.pending[String(n)] = { orderId: order.id, reservedUntil: order.reservedUntil };
+  }
+  data.orders.push(order);
+  db.save(data);
+
+  res.status(201).json({ order, banks: data.banks, reserveMinutes: RESERVE_MINUTES });
+});
+
+// ---- Step 2: attach payment (bank chosen + receipt image) ----
+router.post('/orders/:id/payment', (req, res, next) => {
+  if (isPaymentUploadRateLimited(req.ip)) {
+    reportLockout(`payment-upload-ip:${req.ip}`, `IP ${req.ip} exceeded ${PAYMENT_UPLOAD_MAX_ATTEMPTS} payment-upload attempts in ${PAYMENT_UPLOAD_WINDOW_MS / 60000} minutes.`);
+    return res.status(429).json({ error: 'Too many upload attempts from this network. Please wait a bit and try again.' });
+  }
+  next();
+}, handleUpload(upload.single('receipt')), (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) {
+    // Clean up: file was already saved to disk before we knew the order
+    // lookup would fail.
+    if (req.file) fs.unlink(req.file.path, () => {});
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  if (order.status !== 'awaiting_payment') {
+    if (req.file) fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: `Order is not awaiting payment (status: ${order.status})` });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Payment receipt image is required' });
+
+  // fileFilter only ever saw the client-declared Content-Type for this part,
+  // which a non-browser client can set to anything - confirm the bytes
+  // actually on disk are a real image before accepting the upload.
+  verifyUploadedImage(req.file.path, (verifyErr) => {
+    if (verifyErr) return res.status(400).json({ error: verifyErr.message });
+
+    order.bankSelected = req.body.bankId || null;
+    order.receiptPath = `/uploads/${req.file.filename}`;
+    order.status = 'pending'; // now awaiting admin approval
+    order.submittedAt = new Date().toISOString();
+
+    db.save(data);
+    res.json({ order });
+  });
+});
+
+// ---- Get single order status (for polling / resuming payment) ----
+router.get('/orders/:id', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  res.json({ order });
+});
+
+// ---- Payment receipt image (admin-only) ----
+// The only way to fetch a receipt's actual image bytes - see the static-
+// mount comment in index.js for why this isn't just a public /uploads URL.
+// The buyer-facing app never links back to a buyer's own receipt after
+// upload (it only uploads, never displays it back), so there's currently no
+// legitimate non-admin caller to accommodate here. If that changes, key off
+// order.phone the same way GET /tickets already does, rather than reopening
+// the file to public static serving.
+router.get('/orders/:id/receipt', (req, res) => {
+  if (!req.session || !req.session.adminId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  if (isReceiptViewRateLimited(req.ip)) {
+    return res.status(429).json({ error: 'Too many requests from this network. Please wait a bit and try again.' });
+  }
+  const data = db.load();
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order || !order.receiptPath) return res.status(404).json({ error: 'Receipt not found' });
+
+  // order.receiptPath is always server-generated (see the multer filename
+  // callback above - Date.now() + nanoid + a whitelisted extension), never
+  // client input, but resolve-and-contain defensively anyway rather than
+  // relying on that invariant holding forever.
+  const resolved = path.resolve(uploadsDir, order.receiptPath.replace(/^\/uploads\//, ''));
+  if (!resolved.startsWith(uploadsDir + path.sep)) {
+    return res.status(404).json({ error: 'Receipt not found' });
+  }
+  res.sendFile(resolved, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'Receipt not found' });
+  });
+});
+
+// ---- Bank accounts (read-only) ----
+// Previously only ever sent back as part of the order-create response, which
+// meant a customer who left mid-checkout (order created, payment not yet
+// uploaded) had no way to see the bank list again without creating a brand
+// new order. Needed to resume payment on an existing order from "My Tickets".
+router.get('/banks', (req, res) => {
+  const data = db.load();
+  res.json({ banks: data.banks });
+});
+
+// ---- Lookup tickets by phone number ----
+// Requires the phone number *and* the customer id that was handed back
+// when that phone first placed an order (see getOrCreateCustomer in
+// db.js). A phone number alone is knowable/guessable by someone other
+// than its owner; the id is an opaque per-phone secret that only the
+// buyer has seen, so this is what actually gates access to another
+// buyer's name, ticket numbers, order history and receipt link - the
+// rate limiters below only slow down guessing, they don't prevent it.
+router.get('/tickets', (req, res) => {
+  if (isTicketsLookupRateLimited(req.ip)) {
+    reportLockout(`tickets-lookup-ip:${req.ip}`, `IP ${req.ip} exceeded ${TICKETS_LOOKUP_MAX_ATTEMPTS} ticket-lookup attempts in ${TICKETS_LOOKUP_WINDOW_MS / 60000} minutes - possible phone-number enumeration.`);
+    return res.status(429).json({ error: 'Too many lookup attempts from this network. Please wait a bit and try again.' });
+  }
+  const phone = (req.query.phone || '').trim();
+  const customerId = (req.query.customerId || '').trim().toUpperCase();
+  if (!phone) return res.status(400).json({ error: 'phone query param required' });
+  if (!customerId) return res.status(400).json({ error: 'customerId query param required' });
+  if (isTicketsLookupPhoneRateLimited(phone)) {
+    reportLockout(`tickets-lookup-phone:${phone}`, `Phone number ${phone} was looked up more than ${TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS} times in ${TICKETS_LOOKUP_PHONE_WINDOW_MS / 60000} minutes, possibly from multiple IPs - possible targeted scraping of one buyer's data.`);
+    return res.status(429).json({ error: 'Too many lookups for this number. Please wait a bit and try again.' });
+  }
+  let data = db.load();
+  data = db.sweepExpired(data);
+
+  const customer = data.customers.find(c => c.phone === phone);
+  if (!customer || customer.id !== customerId) {
+    reportLockout(`tickets-lookup-badid:${phone}`, `Ticket lookup for phone ${phone} was made with a wrong/missing customer id from IP ${req.ip} - possible attempt to access another buyer's tickets.`);
+    return res.status(403).json({ error: 'Phone number and customer ID do not match. Check the ID we gave you when you first ordered.' });
+  }
+
+  const orders = data.orders
+    .filter(o => o.phone === phone)
+    .map(o => {
+      const raffle = data.raffles.find(r => r.id === o.raffleId);
+      return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown' };
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const active = orders.filter(o => o.status === 'confirmed').length;
+  const pending = orders.filter(o => o.status === 'pending' || o.status === 'awaiting_payment').length;
+
+  res.json({ orders, counts: { active, pending, total: orders.length } });
+});
+
+module.exports = router;
