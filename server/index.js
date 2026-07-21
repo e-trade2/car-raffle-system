@@ -3,7 +3,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
-const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const db = require('./db');
 const publicRoutes = require('./routes/public');
@@ -11,6 +11,33 @@ const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// A fixed fallback string checked into source (e.g. the old
+// 'change-this-secret-in-production') is just as much a standing risk as a
+// hardcoded admin password: anyone who's seen this repo already knows it,
+// and express-session uses it to sign the cookie that says "this browser is
+// logged in as admin" - knowing the secret lets you forge that cookie
+// outright, no password needed. Same fix as the admin password in db.js:
+// generate a real random one instead. Unlike the password, this one has to
+// be stable across restarts (regenerating it would silently log every admin
+// out each time the process restarts), so it's persisted to a local file
+// rather than only printed - and unlike db.json, it's pure entropy with no
+// reason to ever be read or edited by hand, so a dotfile that tooling
+// naturally skips is a better fit than another top-level data file.
+const SESSION_SECRET_FILE = path.join(__dirname, '..', 'data', '.session-secret');
+function getOrCreateSessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  try {
+    return fs.readFileSync(SESSION_SECRET_FILE, 'utf-8').trim();
+  } catch {
+    const generated = crypto.randomBytes(32).toString('hex');
+    // 0o600: readable/writable by the owner only - this file is as
+    // sensitive as a password, since anyone who can read it can forge an
+    // admin session outright.
+    fs.writeFileSync(SESSION_SECRET_FILE, generated, { mode: 0o600 });
+    return generated;
+  }
+}
 
 // Express sends "X-Powered-By: Express" on every response by default - free
 // reconnaissance for an attacker (confirms the framework, narrows which
@@ -40,7 +67,7 @@ app.use((req, res, next) => {
 });
 
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'change-this-secret-in-production',
+  secret: getOrCreateSessionSecret(),
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -97,14 +124,17 @@ app.use((err, req, res, next) => {
 function printStartupWarnings() {
   const warnings = [];
   if (!process.env.SESSION_SECRET) {
-    warnings.push('SESSION_SECRET is not set in .env - falling back to the default secret checked into source. Set a long random SESSION_SECRET before going live.');
+    warnings.push('SESSION_SECRET is not set in .env - using an auto-generated one persisted to data/.session-secret instead (fine for a single instance). If you ever run more than one instance of this app behind a load balancer, set SESSION_SECRET explicitly to the same value on all of them, or each instance\'s sessions will only work against itself.');
   }
+  if (!process.env.INTERNAL_API_KEY || !process.env.TELEGRAM_BOT_TOKEN) {
+    warnings.push('INTERNAL_API_KEY and/or TELEGRAM_BOT_TOKEN is not set in .env - the Telegram bot will not be able to prefill name/phone in the mini app (POST /telegram/link and /telegram/prefill will just return 503). Fine if you\'re not using the Telegram bot.');
+  }
+  // Loading here (rather than only when routes need it) also has the side
+  // effect of creating data/db.json - and printing the one-time generated
+  // admin password to the console - on the very first run, before anyone
+  // has a chance to hit the login page.
   try {
-    const data = db.load();
-    const defaultPwAdmins = data.admins.filter(a => bcrypt.compareSync('admin123', a.passwordHash));
-    if (defaultPwAdmins.length) {
-      warnings.push(`Still using the default admin password (admin123) for: ${defaultPwAdmins.map(a => a.username).join(', ')}. Change it in Admin -> Settings -> Change Password.`);
-    }
+    db.load();
   } catch {
     // A broken check shouldn't block startup - worst case we just don't warn.
   }
@@ -118,5 +148,5 @@ printStartupWarnings();
 
 app.listen(PORT, () => {
   console.log(`Car raffle system running at http://localhost:${PORT}`);
-  console.log(`Admin panel at http://localhost:${PORT}/admin  (default: admin / admin123)`);
+  console.log(`Admin panel at http://localhost:${PORT}/admin  (username: admin - see above for the password on first run, or check data/db.json's existing setup)`);
 });

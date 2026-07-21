@@ -1,4 +1,4 @@
-const { randomInt } = require('crypto');
+const { randomInt, createHmac, timingSafeEqual } = require('crypto');
 const fs = require('fs');
 const multer = require('multer');
 
@@ -132,4 +132,65 @@ function randomAvailableNumbers(raffle, qty) {
   return pool.slice(0, qty);
 }
 
-module.exports = { getAvailability, numberStatus, publicRaffle, randomAvailableNumbers, verifyUploadedImage, handleUpload };
+// Verifies that a Telegram.WebApp.initData string genuinely came from
+// Telegram for *this* bot, per Telegram's documented check:
+// https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+//
+//   secret_key = HMAC_SHA256(<bot_token>, "WebAppData")
+//   data_check_string = all fields except `hash`, sorted by key,
+//                        joined as "key=value" with "\n"
+//   expected_hash = HMAC_SHA256(data_check_string, secret_key), hex
+//
+// A raw string is not proof of anything by itself - it's just whatever
+// the client's JS handed the page, and a page can be opened outside
+// Telegram entirely. Without this check, anyone could POST a made-up
+// { user: { id: <any id> } } payload and pull back another Telegram
+// user's linked phone number from /api/telegram/prefill.
+//
+// maxAgeSeconds rejects old initData too - Telegram signs it once per
+// mini-app open, but a captured initData string would otherwise stay
+// "valid" forever; Telegram's own guidance is to treat auth_date as a
+// freshness check, not just a formatting field.
+function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 24 * 60 * 60) {
+  if (!initData || typeof initData !== 'string' || !botToken) return null;
+
+  let params;
+  try {
+    params = new URLSearchParams(initData);
+  } catch {
+    return null;
+  }
+
+  const hash = params.get('hash');
+  if (!hash) return null;
+  params.delete('hash');
+
+  const pairs = [];
+  for (const key of params.keys()) pairs.push(key);
+  const uniqueKeys = [...new Set(pairs)].sort();
+  const dataCheckString = uniqueKeys.map(k => `${k}=${params.get(k)}`).join('\n');
+
+  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
+  const expectedHash = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+  const hashBuf = Buffer.from(hash, 'hex');
+  const expectedBuf = Buffer.from(expectedHash, 'hex');
+  if (hashBuf.length !== expectedBuf.length || !timingSafeEqual(hashBuf, expectedBuf)) {
+    return null;
+  }
+
+  const authDate = Number(params.get('auth_date'));
+  if (!authDate || (Date.now() / 1000 - authDate) > maxAgeSeconds) return null;
+
+  let user = null;
+  try {
+    user = JSON.parse(params.get('user') || 'null');
+  } catch {
+    user = null;
+  }
+  if (!user || !user.id) return null;
+
+  return user;
+}
+
+module.exports = { getAvailability, numberStatus, publicRaffle, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData };

@@ -43,6 +43,23 @@ function getTransporter() {
 }
 
 /**
+ * Send a plain-text email via the configured SMTP transport. Used both by
+ * reportLockout below and by the password-reset flow in routes/admin.js.
+ * Throws if SMTP isn't configured or the send fails - callers that treat
+ * email as best-effort (like reportLockout) should catch/ignore; callers
+ * where the email IS the point (like password reset) should let the
+ * failure surface as an error response rather than silently pretending
+ * it sent.
+ */
+async function sendMail({ to, subject, text }) {
+  const t = getTransporter();
+  if (!t) {
+    throw new Error('SMTP is not configured (SMTP_HOST/SMTP_PORT in .env)');
+  }
+  await t.sendMail({ from: process.env.ALERT_EMAIL_FROM || SafeFrom(), to, subject, text });
+}
+
+/**
  * Record a lockout-type security event and send an email alert if it's
  * happening repeatedly. Safe to call unconditionally - never throws, and
  * is a no-op (beyond a console line) when email isn't configured.
@@ -66,8 +83,7 @@ function reportLockout(key, summary) {
   if (now - current.lastAlertedAt < ALERT_DEBOUNCE_MS) return; // already alerted recently for this key
 
   const to = process.env.ALERT_EMAIL_TO;
-  const t = getTransporter();
-  if (!to || !t) {
+  if (!to || !getTransporter()) {
     console.warn(
       '[security] Repeated lockout activity detected, but no email alert was sent because ' +
       'ALERT_EMAIL_TO / SMTP_* are not configured in .env. See .env.example.'
@@ -77,8 +93,7 @@ function reportLockout(key, summary) {
 
   current.lastAlertedAt = now;
 
-  t.sendMail({
-    from: process.env.ALERT_EMAIL_FROM || SafeFrom(),
+  sendMail({
     to,
     subject: `[Raffle admin] Repeated security-relevant lockouts - ${key}`,
     text:
@@ -95,4 +110,4 @@ function SafeFrom() {
   return process.env.SMTP_USER || 'alerts@localhost';
 }
 
-module.exports = { reportLockout };
+module.exports = { reportLockout, sendMail };

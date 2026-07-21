@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const { randomInt } = require('crypto');
 const { nanoid } = require('nanoid');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -11,14 +12,49 @@ const DATA_FILE = path.join(DATA_DIR, 'db.json');
 // uploads/ already does in index.js and routes/public.js.
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
+// A hardcoded default password (e.g. "admin123") checked into source is a
+// standing risk the moment this ever runs somewhere reachable - anyone who
+// has seen this repo (or guesses it, since it's a common default) can log
+// in before the admin ever changes it. Generating a random one per install
+// and printing it once removes that window entirely. Excludes visually
+// ambiguous characters (0/O, 1/l/I) since this has to be read off a
+// terminal and retyped.
+const INITIAL_PASSWORD_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+function generateInitialPassword(length = 14) {
+  let pw = '';
+  for (let i = 0; i < length; i++) pw += INITIAL_PASSWORD_CHARS[randomInt(INITIAL_PASSWORD_CHARS.length)];
+  return pw;
+}
+
 function defaultData() {
+  // Only ever generated once, right here, the first time the app runs with
+  // no data/db.json yet - printed to the console since this is the only
+  // moment the plaintext exists (only the bcrypt hash gets persisted).
+  // Lost it? Use `node server/reset-admin.js <username> <password>` instead
+  // of deleting db.json, which would also wipe every raffle/order on file.
+  const initialPassword = generateInitialPassword();
+  console.log('\n🔑 First run detected - generated an admin login:');
+  console.log(`   Username: admin`);
+  console.log(`   Password: ${initialPassword}`);
+  console.log('   This will not be shown again. Save it now, then change it from Admin -> Settings.\n');
+
   return {
     admins: [
       {
         id: nanoid(8),
         username: 'admin',
-        // default password: "admin123" -- CHANGE THIS after first login
-        passwordHash: bcrypt.hashSync('admin123', 10),
+        passwordHash: bcrypt.hashSync(initialPassword, 10),
+        // Recovery email for the "forgot password" flow (server/routes/admin.js
+        // POST /forgot-password). Null until the admin sets one from
+        // Settings - without it, the only recovery path is the
+        // reset-admin.js server script.
+        email: null,
+        // Set only while a reset email is outstanding. Holds a SHA-256
+        // hash of the token, never the raw token, same reasoning as
+        // passwordHash: if db.json ever leaked, a stored raw token would
+        // be directly usable to take over the account.
+        resetTokenHash: null,
+        resetTokenExpiresAt: null,
         failedLoginAttempts: 0,
         lockedUntil: null,
         createdAt: new Date().toISOString()
@@ -47,6 +83,12 @@ function defaultData() {
     // must present alongside the phone number - see getOrCreateCustomer()
     // and GET /tickets in routes/public.js.
     customers: [],
+    // Links a Telegram account to the phone number it shared with the bot.
+    // Populated by the bot (POST /api/telegram/link) right after someone
+    // taps "share phone". Read back by the mini app (POST
+    // /api/telegram/prefill) to fill in name/phone automatically instead of
+    // asking the user to retype what they already gave the bot.
+    telegramUsers: [],
     banks: [
       { id: nanoid(6), name: 'Telebirr', holder: 'Getachew', account: '0924242419' },
       { id: nanoid(6), name: 'Commercial Bank of Ethiopia', holder: 'Getachew Fikadu Jirata', account: '1000528139489' }
@@ -65,6 +107,12 @@ function load() {
   // without this, every phone number from before the upgrade would have
   // no customer id and could never pass the GET /tickets check below.
   if (!Array.isArray(data.customers)) data.customers = [];
+  if (!Array.isArray(data.telegramUsers)) data.telegramUsers = [];
+  for (const admin of data.admins || []) {
+    if (admin.email === undefined) admin.email = null;
+    if (admin.resetTokenHash === undefined) admin.resetTokenHash = null;
+    if (admin.resetTokenExpiresAt === undefined) admin.resetTokenExpiresAt = null;
+  }
   let migrated = false;
   for (const order of data.orders) {
     if (!order.phone) continue;
@@ -92,6 +140,29 @@ function getOrCreateCustomer(data, phone) {
     data.customers.push(customer);
   }
   return customer;
+}
+
+// Records/updates which phone+name a Telegram account shared with the bot.
+// telegramId is Telegram's numeric user id (sent as a string/number from
+// the bot) - not secret, but only the bot server should ever be able to
+// call this, since it's writing a phone number under someone's control.
+// That's enforced by the internal-key check in the route handler, not here.
+function upsertTelegramUser(data, telegramId, phone, fullName) {
+  const id = String(telegramId);
+  let user = data.telegramUsers.find(u => u.telegramId === id);
+  if (user) {
+    user.phone = phone;
+    user.fullName = fullName;
+    user.updatedAt = new Date().toISOString();
+  } else {
+    user = { telegramId: id, phone, fullName, updatedAt: new Date().toISOString() };
+    data.telegramUsers.push(user);
+  }
+  return user;
+}
+
+function findTelegramUser(data, telegramId) {
+  return data.telegramUsers.find(u => u.telegramId === String(telegramId)) || null;
 }
 
 function save(data) {
@@ -144,4 +215,4 @@ function sweepExpired(data) {
   return data;
 }
 
-module.exports = { load, save, sweepExpired, defaultData, getOrCreateCustomer, DATA_FILE };
+module.exports = { load, save, sweepExpired, defaultData, getOrCreateCustomer, upsertTelegramUser, findTelegramUser, DATA_FILE };

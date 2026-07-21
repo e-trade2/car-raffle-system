@@ -1,14 +1,17 @@
 // Recovery tool for a locked-out or forgotten admin account.
 //
-// This app has no email-based "forgot password" flow (no admin email is
-// verified/tied to the account for that purpose) - by design, recovery
-// requires access to the server/files, same as most small self-hosted apps.
-// Run this directly on the machine (or container) hosting the app:
+// This is the fallback path when the normal recovery route (Settings ->
+// Recovery Email, then "Forgot password?" on the login screen) isn't
+// available - e.g. no recovery email was ever set, SMTP isn't configured,
+// or the admin also lost access to that inbox. Run this directly on the
+// machine (or container) hosting the app:
 //
 //   node server/reset-admin.js <newUsername> <newPassword>
 //
-// It resets the (single) admin account's username and password, and clears
-// any lockout/failed-attempt state, so you can log back in immediately.
+// It resets the (single) admin account's username and password, clears
+// any lockout/failed-attempt state, and invalidates any outstanding
+// password-reset email link, so you can log back in immediately and
+// nothing from before this run still works.
 // Validation mirrors the /change-username and /change-password API rules.
 
 const bcrypt = require('bcryptjs');
@@ -53,10 +56,16 @@ admin.username = trimmedUsername;
 admin.passwordHash = bcrypt.hashSync(newPassword, 10);
 admin.failedLoginAttempts = 0;
 admin.lockedUntil = null;
+// If a "Forgot password?" email was ever sent for this account, its link
+// must not still work after this script has already reset the password -
+// otherwise whoever has that old email (could be someone else entirely,
+// if the recovery email was ever wrong/compromised) could reset it again.
+admin.resetTokenHash = null;
+admin.resetTokenExpiresAt = null;
 
 db.save(data);
 
 console.log(`Admin credentials reset.`);
 console.log(`  Username: ${trimmedUsername}`);
 console.log(`  Password: (as given)`);
-console.log(`Any account lockout has also been cleared. You can log in now.`);
+console.log(`Any account lockout and outstanding password-reset link have also been cleared. You can log in now.`);
