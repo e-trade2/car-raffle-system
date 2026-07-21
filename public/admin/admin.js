@@ -35,6 +35,12 @@ async function checkAuth(){
     document.getElementById('whoAmI').textContent = `Logged in as ${me.username}`;
     document.getElementById('loginWrap').style.display = 'none';
     document.getElementById('dashWrap').style.display = 'block';
+    const emailLabel = document.getElementById('currentEmailLabel');
+    if (emailLabel){
+      emailLabel.textContent = me.email
+        ? `Currently: ${me.email}`
+        : 'Not set - you won\'t be able to use "Forgot password?" until you add one.';
+    }
     initDashboard();
   }catch(e){
     document.getElementById('loginWrap').style.display = 'block';
@@ -369,6 +375,48 @@ document.getElementById('changePassBtn').addEventListener('click', async ()=>{
     alert('Password updated');
     document.getElementById('curPass').value=''; document.getElementById('newPass').value='';
   }catch(e){ alert(e.message); }
+});
+
+document.getElementById('changeEmailBtn').addEventListener('click', async ()=>{
+  const currentPassword = document.getElementById('curPassForEmail').value;
+  const email = document.getElementById('newEmail').value.trim();
+  try{
+    const res = await api('/account/email', { method:'POST', body: JSON.stringify({ currentPassword, email }) });
+    alert(res.email ? 'Recovery email saved' : 'Recovery email removed');
+    document.getElementById('curPassForEmail').value=''; document.getElementById('newEmail').value='';
+    document.getElementById('currentEmailLabel').textContent = res.email
+      ? `Currently: ${res.email}`
+      : 'Not set - you won\'t be able to use "Forgot password?" until you add one.';
+  }catch(e){ alert(e.message); }
+});
+
+// ===== Forgot password (from the login screen, no session yet) =====
+document.getElementById('forgotPasswordLink').addEventListener('click', (e)=>{
+  e.preventDefault();
+  const wrap = document.getElementById('forgotWrap');
+  const showing = wrap.style.display !== 'none';
+  wrap.style.display = showing ? 'none' : 'block';
+  if (!showing) document.getElementById('forgotUsername').value = document.getElementById('loginUser').value.trim();
+});
+
+document.getElementById('forgotSubmitBtn').addEventListener('click', async ()=>{
+  const username = document.getElementById('forgotUsername').value.trim();
+  const errEl = document.getElementById('forgotErr');
+  const msgEl = document.getElementById('forgotMsg');
+  showErr(errEl, '');
+  msgEl.style.display = 'none';
+  if (!username){ showErr(errEl, 'Enter your username'); return; }
+  const btn = document.getElementById('forgotSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try{
+    const res = await api('/forgot-password', { method:'POST', body: JSON.stringify({ username }) });
+    msgEl.textContent = res.message;
+    msgEl.style.display = 'block';
+  }catch(e){
+    showErr(errEl, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Send Reset Link';
+  }
 });
 
 // ===== Password visibility toggles =====

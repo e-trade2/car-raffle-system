@@ -87,13 +87,23 @@
   <input type="text" id="loginUser" value="admin">
   <label>Password</label>
   <div class="pw-wrap">
-    <input type="password" id="loginPass" placeholder="admin123">
+    <input type="password" id="loginPass" placeholder="••••••••">
     <button type="button" class="pw-toggle" data-for="loginPass" title="Show password" aria-label="Show password">
       <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
       <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 3l18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10.6 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13.5 13.5 0 0 1-3.2 3.9M6.5 6.6C3.4 8.5 1 12 1 12s4 7 11 7a10.4 10.4 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
   </div>
   <button class="btn-gold" id="loginBtn">Log In</button>
+  <div style="text-align:center;margin-top:10px;">
+    <a href="#" id="forgotPasswordLink" style="font-size:13px;color:#9ca3af;">Forgot password?</a>
+  </div>
+  <div id="forgotWrap" style="display:none;margin-top:14px;">
+    <div class="err" id="forgotErr"></div>
+    <div id="forgotMsg" style="font-size:13px;color:#9ca3af;margin-bottom:8px;display:none;"></div>
+    <label>Username</label>
+    <input type="text" id="forgotUsername">
+    <button class="btn-gold" id="forgotSubmitBtn" style="margin-top:8px;">Send Reset Link</button>
+  </div>
 </div>
 
 <div class="wrap" id="dashWrap" style="display:none;">
@@ -209,6 +219,20 @@
         </button>
       </div>
       <button class="btn-gold" id="changePassBtn" style="max-width:220px;">Update Password</button>
+    </div>
+    <div class="card">
+      <h3>Recovery Email</h3>
+      <div style="font-size:12.5px;color:#9ca3af;margin-bottom:8px;" id="currentEmailLabel">Not set - you won't be able to use "Forgot password?" until you add one.</div>
+      <label>Current Password</label>
+      <div class="pw-wrap">
+        <input type="password" id="curPassForEmail" autocomplete="current-password">
+        <button type="button" class="pw-toggle" data-for="curPassForEmail" title="Show password" aria-label="Show password">
+          <svg class="icon-eye" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 3l18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10.6 5.1A11 11 0 0 1 12 5c7 0 11 7 11 7a13.5 13.5 0 0 1-3.2 3.9M6.5 6.6C3.4 8.5 1 12 1 12s4 7 11 7a10.4 10.4 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <label>Recovery Email</label><input type="email" id="newEmail" autocomplete="email">
+      <button class="btn-gold" id="changeEmailBtn" style="max-width:220px;">Save Email</button>
     </div>
   </div>
 </div>
