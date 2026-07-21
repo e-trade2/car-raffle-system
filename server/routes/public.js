@@ -2,9 +2,10 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload } = require('../utils');
+const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData } = require('../utils');
 const { reportLockout } = require('../alerts');
 
 const router = express.Router();
@@ -356,6 +357,71 @@ router.get('/tickets', (req, res) => {
   const pending = orders.filter(o => o.status === 'pending' || o.status === 'awaiting_payment').length;
 
   res.json({ orders, counts: { active, pending, total: orders.length } });
+});
+
+// ---- Telegram bot <-> mini app bridge ----
+//
+// POST /telegram/link is called by the bot's own server, right after a
+// user shares their phone number, to record "this Telegram account = this
+// phone/name". It is NOT reachable by the mini app or any browser client -
+// it's gated on a shared secret (INTERNAL_API_KEY) that only the bot
+// process holds, because it writes a phone number under someone's control
+// and must not be callable by an arbitrary visitor.
+//
+// POST /telegram/prefill is called by the mini app frontend, once, on
+// load. It proves who's asking via Telegram's signed initData (see
+// verifyTelegramInitData in utils.js) rather than a client-supplied id -
+// otherwise anyone could POST { user: { id: <someone else's id> } } and
+// pull back that person's phone number.
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+
+function timingSafeStringEqual(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+router.post('/telegram/link', (req, res) => {
+  if (!INTERNAL_API_KEY) {
+    return res.status(503).json({ error: 'Telegram linking is not configured on this server' });
+  }
+  const providedKey = req.get('x-internal-key') || '';
+  if (!providedKey || !timingSafeStringEqual(providedKey, INTERNAL_API_KEY)) {
+    reportLockout(`telegram-link-badkey:${req.ip}`, `IP ${req.ip} called POST /telegram/link with a missing/wrong internal key - possible attempt to plant a fake phone/telegramId pairing.`);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { telegramId, phone, fullName } = req.body || {};
+  if (!telegramId || !phone) {
+    return res.status(400).json({ error: 'telegramId and phone are required' });
+  }
+  const data = db.load();
+  const user = db.upsertTelegramUser(data, telegramId, String(phone).trim(), String(fullName || '').trim());
+  db.save(data);
+  res.json({ ok: true, telegramId: user.telegramId });
+});
+
+router.post('/telegram/prefill', (req, res) => {
+  if (isTicketsLookupRateLimited(req.ip)) {
+    return res.status(429).json({ error: 'Too many attempts from this network. Please wait a bit and try again.' });
+  }
+  if (!TELEGRAM_BOT_TOKEN) {
+    return res.status(503).json({ error: 'Telegram verification is not configured on this server' });
+  }
+  const { initData } = req.body || {};
+  const tgUser = verifyTelegramInitData(initData, TELEGRAM_BOT_TOKEN);
+  if (!tgUser) {
+    return res.status(403).json({ error: 'Could not verify Telegram session' });
+  }
+  const data = db.load();
+  const linked = db.findTelegramUser(data, tgUser.id);
+  if (!linked) {
+    // Not an error - just means this Telegram account hasn't shared its
+    // phone with the bot yet (or shared it before this feature existed).
+    return res.json({ linked: false });
+  }
+  res.json({ linked: true, phone: linked.phone, fullName: linked.fullName });
 });
 
 module.exports = router;

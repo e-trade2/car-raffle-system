@@ -3,11 +3,11 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { randomInt } = require('crypto');
+const { randomInt, randomBytes, createHash, timingSafeEqual } = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload } = require('../utils');
-const { reportLockout } = require('../alerts');
+const { reportLockout, sendMail } = require('../alerts');
 
 const router = express.Router();
 
@@ -70,6 +70,30 @@ function isIpRateLimited(ip) {
 const ACCOUNT_MAX_FAILED_ATTEMPTS = 5;
 const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
 
+// Separate from the login limiter above - these two endpoints have their
+// own cost/abuse shape (forgot-password sends a real email each time;
+// reset-password lets someone try many token guesses). Tighter caps than
+// login since there's no legitimate reason to hit either one often.
+const RESET_IP_WINDOW_MS = 15 * 60 * 1000;
+const RESET_IP_MAX_ATTEMPTS = 8;
+const resetAttemptsByIp = new Map();
+function isResetIpRateLimited(ip) {
+  const now = Date.now();
+  const entry = resetAttemptsByIp.get(ip);
+  if (!entry || now - entry.windowStart > RESET_IP_WINDOW_MS) {
+    resetAttemptsByIp.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > RESET_IP_MAX_ATTEMPTS;
+}
+
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+function hashToken(token) {
+  return createHash('sha256').update(token).digest('hex');
+}
+
 // ---- Auth ----
 router.post('/login', (req, res) => {
   if (isIpRateLimited(req.ip)) {
@@ -129,7 +153,89 @@ router.get('/me', (req, res) => {
   const data = db.load();
   const admin = data.admins.find(a => a.id === req.session.adminId);
   if (!admin) return res.status(401).json({ error: 'Not authenticated' });
-  res.json({ username: admin.username });
+  res.json({ username: admin.username, email: admin.email || null });
+});
+
+// ---- Forgot / reset password ----
+// Deliberately public (no requireAuth) - that's the entire point, someone
+// using this has no valid session. Both routes always return the same
+// generic response shape regardless of whether the username/token was
+// real, so this can't be used to enumerate which usernames exist or
+// whether a given token is merely expired vs never valid.
+router.post('/forgot-password', async (req, res) => {
+  if (isResetIpRateLimited(req.ip)) {
+    reportLockout(`reset-request-ip:${req.ip}`, `IP ${req.ip} exceeded ${RESET_IP_MAX_ATTEMPTS} password-reset requests in ${RESET_IP_WINDOW_MS / 60000} minutes.`);
+    return res.status(429).json({ error: 'Too many requests from this network. Please wait a bit and try again.' });
+  }
+
+  const generic = { ok: true, message: 'If that account exists and has a recovery email set, a reset link has been sent to it.' };
+  const username = String((req.body && req.body.username) || '').trim();
+  if (!username) return res.json(generic);
+
+  const data = db.load();
+  const admin = data.admins.find(a => a.username === username);
+  if (!admin || !admin.email) return res.json(generic); // same response either way - see comment above
+
+  const token = randomBytes(32).toString('hex');
+  admin.resetTokenHash = hashToken(token);
+  admin.resetTokenExpiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+  db.save(data);
+
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const resetLink = `${origin}/admin/reset-password.html?token=${token}`;
+
+  try {
+    await sendMail({
+      to: admin.email,
+      subject: 'Reset your raffle admin password',
+      text:
+        `Someone (hopefully you) requested a password reset for the admin account "${admin.username}".\n\n` +
+        `Reset your password here (expires in 30 minutes):\n${resetLink}\n\n` +
+        `If you didn't request this, you can ignore this email - your password hasn't been changed.`
+    });
+  } catch (err) {
+    console.error('[admin] Failed to send password-reset email:', err.message);
+    // Still return the generic response - don't reveal to the caller
+    // whether the account/email existed based on send success/failure.
+  }
+
+  res.json(generic);
+});
+
+router.post('/reset-password', (req, res) => {
+  if (isResetIpRateLimited(req.ip)) {
+    reportLockout(`reset-confirm-ip:${req.ip}`, `IP ${req.ip} exceeded ${RESET_IP_MAX_ATTEMPTS} password-reset confirmations in ${RESET_IP_WINDOW_MS / 60000} minutes - possible token guessing.`);
+    return res.status(429).json({ error: 'Too many attempts from this network. Please wait a bit and try again.' });
+  }
+
+  const { token, newPassword } = req.body || {};
+  if (!token || !newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'A valid reset link and a new password (6+ characters) are required.' });
+  }
+
+  const data = db.load();
+  const tokenHash = hashToken(token);
+  const tokenHashBuf = Buffer.from(tokenHash);
+  const admin = data.admins.find(a => {
+    if (!a.resetTokenHash) return false;
+    const storedBuf = Buffer.from(a.resetTokenHash);
+    return storedBuf.length === tokenHashBuf.length && timingSafeEqual(storedBuf, tokenHashBuf);
+  });
+
+  if (!admin || !admin.resetTokenExpiresAt || new Date(admin.resetTokenExpiresAt).getTime() < Date.now()) {
+    return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
+  }
+
+  admin.passwordHash = bcrypt.hashSync(newPassword, 10);
+  admin.resetTokenHash = null;
+  admin.resetTokenExpiresAt = null;
+  // A legitimate reset just proved account ownership via email - no reason
+  // to keep an unrelated login lockout in effect afterwards.
+  admin.failedLoginAttempts = 0;
+  admin.lockedUntil = null;
+  db.save(data);
+
+  res.json({ ok: true });
 });
 
 router.post('/change-password', requireAuth, (req, res) => {
@@ -185,6 +291,35 @@ router.post('/change-username', requireAuth, (req, res) => {
   admin.username = trimmed;
   db.save(data);
   res.json({ ok: true, username: admin.username });
+});
+
+router.post('/account/email', requireAuth, (req, res) => {
+  const { currentPassword, email } = req.body;
+  const data = db.load();
+  const admin = data.admins.find(a => a.id === req.session.adminId);
+
+  // Same reasoning as change-password/change-username: require the current
+  // password before changing this, since it's the account's recovery
+  // mechanism - a hijacked/unattended session shouldn't be able to
+  // silently redirect password resets to an attacker-controlled inbox.
+  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const trimmed = String(email || '').trim();
+  if (trimmed) {
+    // Deliberately simple format check, not full RFC 5322 validation -
+    // the real proof this address works happens when they click a reset
+    // link sent to it, not at save time.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
+    }
+    admin.email = trimmed;
+  } else {
+    admin.email = null; // explicit clear
+  }
+  db.save(data);
+  res.json({ ok: true, email: admin.email });
 });
 
 // everything below requires auth
