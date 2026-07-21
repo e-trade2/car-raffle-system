@@ -11,6 +11,7 @@ node_modules/
 # numbers, and order history. It's generated on first run (see server/db.js)
 # and shouldn't ship in source control.
 data/db.json
+data/.session-secret
 data/*.tmp
 
 # User-uploaded content (payment receipts, car photos) - generated at
