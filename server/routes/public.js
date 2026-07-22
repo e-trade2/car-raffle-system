@@ -421,7 +421,21 @@ router.post('/telegram/prefill', (req, res) => {
     // phone with the bot yet (or shared it before this feature existed).
     return res.json({ linked: false });
   }
-  res.json({ linked: true, phone: linked.phone, fullName: linked.fullName });
+  // Also hand back this phone's customerId, the opaque secret /tickets
+  // normally requires alongside the phone number to stop a stranger from
+  // looking up someone else's orders by phone alone. That protection isn't
+  // needed here - verifyTelegramInitData above already cryptographically
+  // proved this request really is from the Telegram account linked to this
+  // phone, which is at least as strong a guarantee as knowing the id. Without
+  // this, "My Tickets" had the phone but never the id, so it could never
+  // auto-load - the buyer would see an empty list despite having real orders.
+  const customer = data.customers.find(c => c.phone === linked.phone);
+  res.json({
+    linked: true,
+    phone: linked.phone,
+    fullName: linked.fullName,
+    customerId: customer ? customer.id : null
+  });
 });
 
 module.exports = router;
