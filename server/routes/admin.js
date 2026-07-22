@@ -521,6 +521,38 @@ router.post('/orders/:id/reject', (req, res) => {
   res.json({ order });
 });
 
+// ---- Undo a mistaken approval ----
+// approve is meant to be a considered, final-ish action (it's what marks
+// numbers as actually sold and counts toward revenue), but a misclick is a
+// misclick - without this, there was no way back from an accidental
+// Approve short of hand-editing Supabase's stored JSON directly. This puts
+// the order back where reject already knows how to send it from: pending,
+// with its numbers held (not released to the public pool, since the
+// order/receipt are still real and still need a decision) rather than
+// fully open for someone else to grab.
+router.post('/orders/:id/unconfirm', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status !== 'confirmed') {
+    return res.status(400).json({ error: `Cannot unconfirm order in status ${order.status}` });
+  }
+  const raffle = data.raffles.find(r => r.id === order.raffleId);
+  if (raffle) {
+    raffle.pending = raffle.pending || {};
+    for (const n of order.ticketNumbers) {
+      raffle.takenNumbers = raffle.takenNumbers.filter(t => t !== n);
+      raffle.pending[String(n)] = { orderId: order.id, reservedUntil: order.reservedUntil || null };
+    }
+  }
+  order.status = 'pending';
+  delete order.confirmedAt;
+  order.unconfirmedAt = new Date().toISOString();
+  db.save(data);
+  res.json({ order });
+});
+
 // ---- Banks ----
 router.get('/banks', (req, res) => {
   const data = db.load();
