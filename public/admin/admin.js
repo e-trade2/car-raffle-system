@@ -122,6 +122,7 @@ function renderOrders(orders){
           ${o.status === 'pending' ? `<button class="btn-green" data-approve="${o.id}">Approve</button><button class="btn-red" data-reject="${o.id}">Reject</button>` : ''}
           ${o.status === 'awaiting_payment' ? `<button class="btn-red" data-reject="${o.id}">Cancel</button>` : ''}
           ${o.status === 'confirmed' ? `<button class="btn-red" data-unconfirm="${o.id}">Unconfirm</button>` : ''}
+          ${(['rejected','expired'].includes(o.status) || o.raffleStatus === 'ended') ? `<button class="btn-red" data-delete="${o.id}">Delete</button>` : ''}
         </div>
       </td>
     </tr>
@@ -159,6 +160,16 @@ function renderOrders(orders){
       if (!confirm('Unconfirm this order? It will go back to Pending and its ticket numbers will be held (not released) until you approve or reject it again.')) return;
       btn.disabled = true;
       try{ await api(`/orders/${btn.dataset.unconfirm}/unconfirm`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-delete]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      // Deleting is permanent - there's no reject/unconfirm to undo this
+      // with afterward, so this confirm is more emphatic than the others.
+      if (!confirm('Permanently delete this order? This cannot be undone - the order record, buyer details and receipt link will be gone for good.')) return;
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.delete}`, { method:'DELETE' }); loadOrders(); loadSummary(); loadRaffles(); }
       catch(e){ alert(e.message); btn.disabled = false; }
     });
   });
