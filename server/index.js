@@ -144,9 +144,20 @@ function printStartupWarnings() {
     console.warn('');
   }
 }
-printStartupWarnings();
+// Restoring from Supabase (if configured) has to finish *before*
+// printStartupWarnings() calls db.load(), or db.load() would see an empty
+// data/db.json, think it's a genuine first run, and hand out a fresh
+// random admin login even though real data is sitting in Supabase waiting
+// to be pulled down. That await is the only reason startup is wrapped in
+// an async function here.
+async function start() {
+  await require('./supabase-sync').pullLatestIntoLocalFile();
 
-app.listen(PORT, () => {
-  console.log(`Car raffle system running at http://localhost:${PORT}`);
-  console.log(`Admin panel at http://localhost:${PORT}/admin  (username: admin - see above for the password on first run, or check data/db.json's existing setup)`);
-});
+  printStartupWarnings();
+
+  app.listen(PORT, () => {
+    console.log(`Car raffle system running at http://localhost:${PORT}`);
+    console.log(`Admin panel at http://localhost:${PORT}/admin  (username: admin - see above for the password on first run, or check data/db.json's existing setup)`);
+  });
+}
+start();
