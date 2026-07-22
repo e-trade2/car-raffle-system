@@ -121,6 +121,7 @@ function renderOrders(orders){
         <div class="row-actions">
           ${o.status === 'pending' ? `<button class="btn-green" data-approve="${o.id}">Approve</button><button class="btn-red" data-reject="${o.id}">Reject</button>` : ''}
           ${o.status === 'awaiting_payment' ? `<button class="btn-red" data-reject="${o.id}">Cancel</button>` : ''}
+          ${o.status === 'confirmed' ? `<button class="btn-red" data-unconfirm="${o.id}">Unconfirm</button>` : ''}
         </div>
       </td>
     </tr>
@@ -147,6 +148,17 @@ function renderOrders(orders){
     btn.addEventListener('click', async ()=>{
       btn.disabled = true;
       try{ await api(`/orders/${btn.dataset.reject}/reject`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-unconfirm]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      // Unlike approve/reject, this reverses something already counted as
+      // real revenue and a sold number - worth one extra click of friction
+      // so a stray misclick can't chain into a second one.
+      if (!confirm('Unconfirm this order? It will go back to Pending and its ticket numbers will be held (not released) until you approve or reject it again.')) return;
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.unconfirm}/unconfirm`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
       catch(e){ alert(e.message); btn.disabled = false; }
     });
   });
