@@ -7,8 +7,40 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData } = require('../utils');
 const { reportLockout } = require('../alerts');
+const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
+
+// ---- Receipt storage ----
+// Receipts used to live only on local disk (uploadsDir below), which is
+// wiped on every redeploy/restart on hosts with an ephemeral filesystem
+// (e.g. Render's free tier) - order *data* survived restarts fine via
+// supabase-sync.js, but the receipt image files themselves quietly
+// vanished, leaving "View" broken for any order placed before the last
+// redeploy. Uploading to a Supabase Storage bucket instead makes receipts
+// as durable as the rest of the app's data. The bucket is private - it's
+// not meant to be reachable by a bare URL, only through the admin-gated
+// GET /orders/:id/receipt route below, same access model as before.
+const RECEIPT_BUCKET = 'receipts';
+let bucketEnsured = false;
+async function ensureReceiptBucket() {
+  if (bucketEnsured) return;
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.storage.createBucket(RECEIPT_BUCKET, { public: false });
+    // "already exists" isn't a real failure - just means a previous boot
+    // (or manual dashboard setup) already created it.
+    if (error && !/already exists/i.test(error.message || '')) {
+      console.warn('⚠️  Could not create Supabase receipts bucket:', error.message);
+    }
+  } catch (err) {
+    console.warn('⚠️  Could not create Supabase receipts bucket:', err.message);
+  } finally {
+    bucketEnsured = true; // don't retry every request even if it failed
+  }
+}
+ensureReceiptBucket();
 
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -251,11 +283,40 @@ router.post('/orders/:id/payment', (req, res, next) => {
   // fileFilter only ever saw the client-declared Content-Type for this part,
   // which a non-browser client can set to anything - confirm the bytes
   // actually on disk are a real image before accepting the upload.
-  verifyUploadedImage(req.file.path, (verifyErr) => {
+  verifyUploadedImage(req.file.path, async (verifyErr) => {
     if (verifyErr) return res.status(400).json({ error: verifyErr.message });
 
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const objectPath = req.file.filename; // already unique: Date.now()_nanoid.ext
+        const { error: uploadErr } = await supabase.storage
+          .from(RECEIPT_BUCKET)
+          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
+        // The local copy was only ever needed for verifyUploadedImage above -
+        // clean it up either way now, since uploadsDir doesn't survive a
+        // restart anyway and there's no reason to let it pile up meanwhile.
+        fs.unlink(req.file.path, () => {});
+        if (uploadErr) {
+          console.warn('⚠️  Supabase receipt upload failed, order will have no viewable receipt:', uploadErr.message);
+          return res.status(502).json({ error: 'Could not store the receipt image. Please try again.' });
+        }
+        order.receiptPath = `supabase:${objectPath}`;
+      } catch (err) {
+        fs.unlink(req.file.path, () => {});
+        console.warn('⚠️  Supabase receipt upload failed, order will have no viewable receipt:', err.message);
+        return res.status(502).json({ error: 'Could not store the receipt image. Please try again.' });
+      }
+    } else {
+      // No Supabase configured (e.g. local dev without those env vars) -
+      // same local-disk behavior as before. Fine for local dev; on Render
+      // free tier this means the receipt won't survive a redeploy, same
+      // caveat as everything else that isn't in Supabase.
+      order.receiptPath = `/uploads/${req.file.filename}`;
+    }
+
     order.bankSelected = req.body.bankId || null;
-    order.receiptPath = `/uploads/${req.file.filename}`;
     order.status = 'pending'; // now awaiting admin approval
     order.submittedAt = new Date().toISOString();
 
@@ -281,7 +342,7 @@ router.get('/orders/:id', (req, res) => {
 // legitimate non-admin caller to accommodate here. If that changes, key off
 // order.phone the same way GET /tickets already does, rather than reopening
 // the file to public static serving.
-router.get('/orders/:id/receipt', (req, res) => {
+router.get('/orders/:id/receipt', async (req, res) => {
   if (!req.session || !req.session.adminId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
@@ -292,10 +353,19 @@ router.get('/orders/:id/receipt', (req, res) => {
   const order = data.orders.find(o => o.id === req.params.id);
   if (!order || !order.receiptPath) return res.status(404).json({ error: 'Receipt not found' });
 
-  // order.receiptPath is always server-generated (see the multer filename
-  // callback above - Date.now() + nanoid + a whitelisted extension), never
-  // client input, but resolve-and-contain defensively anyway rather than
-  // relying on that invariant holding forever.
+  if (order.receiptPath.startsWith('supabase:')) {
+    const objectPath = order.receiptPath.slice('supabase:'.length);
+    const supabase = getSupabaseClient();
+    if (!supabase) return res.status(404).json({ error: 'Receipt not found' });
+    const { data: fileBlob, error } = await supabase.storage.from(RECEIPT_BUCKET).download(objectPath);
+    if (error || !fileBlob) return res.status(404).json({ error: 'Receipt not found' });
+    const arrayBuffer = await fileBlob.arrayBuffer();
+    res.setHeader('Content-Type', fileBlob.type || 'application/octet-stream');
+    return res.send(Buffer.from(arrayBuffer));
+  }
+
+  // Legacy path: receipts uploaded before the Supabase Storage switch (or
+  // when Supabase isn't configured) are still just a local file.
   const resolved = path.resolve(uploadsDir, order.receiptPath.replace(/^\/uploads\//, ''));
   if (!resolved.startsWith(uploadsDir + path.sep)) {
     return res.status(404).json({ error: 'Receipt not found' });
