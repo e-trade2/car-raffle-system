@@ -108,4 +108,4 @@ function pushToSupabaseInBackground(data) {
     });
 }
 
-module.exports = { pullLatestIntoLocalFile, pushToSupabaseInBackground };
+module.exports = { pullLatestIntoLocalFile, pushToSupabaseInBackground, getClient };
