@@ -27,22 +27,47 @@ function generateInitialPassword(length = 14) {
 }
 
 function defaultData() {
+  // On hosts with an ephemeral filesystem (e.g. Render's free tier), the
+  // entire data/ directory - including this file - gets wiped on every
+  // restart, redeploy, or spin-down/spin-up. Without an override, that means
+  // defaultData() runs again on every restart and hands out a *new* random
+  // password each time, even though nothing about the login actually
+  // changed from the operator's point of view. Setting ADMIN_USERNAME /
+  // ADMIN_PASSWORD makes the login stable across restarts by deriving it
+  // from an env var instead of randomness. This does NOT fix data loss for
+  // raffles/orders/customers - only persistent storage (a mounted disk or
+  // an external DB) fixes that; this only keeps the admin login usable.
+  const envUsername = process.env.ADMIN_USERNAME?.trim();
+  const envPassword = process.env.ADMIN_PASSWORD;
+  const usingEnvCreds = Boolean(envUsername && envPassword);
+
   // Only ever generated once, right here, the first time the app runs with
   // no data/db.json yet - printed to the console since this is the only
   // moment the plaintext exists (only the bcrypt hash gets persisted).
   // Lost it? Use `node server/reset-admin.js <username> <password>` instead
   // of deleting db.json, which would also wipe every raffle/order on file.
-  const initialPassword = generateInitialPassword();
-  console.log('\n🔑 First run detected - generated an admin login:');
-  console.log(`   Username: admin`);
-  console.log(`   Password: ${initialPassword}`);
-  console.log('   This will not be shown again. Save it now, then change it from Admin -> Settings.\n');
+  const initialPassword = usingEnvCreds ? envPassword : generateInitialPassword();
+
+  if (usingEnvCreds) {
+    console.log('\n🔑 Admin login set from ADMIN_USERNAME / ADMIN_PASSWORD env vars:');
+    console.log(`   Username: ${envUsername}`);
+    console.log('   Password: (as set in the environment)');
+    console.log('   This stays the same across restarts as long as those env vars are set.\n');
+  } else {
+    console.log('\n🔑 First run detected - generated an admin login:');
+    console.log(`   Username: admin`);
+    console.log(`   Password: ${initialPassword}`);
+    console.log('   This will not be shown again. Save it now, then change it from Admin -> Settings.');
+    console.log('   Note: on hosts with an ephemeral filesystem (e.g. Render free tier), this');
+    console.log('   password will regenerate on every restart unless you set ADMIN_USERNAME and');
+    console.log('   ADMIN_PASSWORD as environment variables instead.\n');
+  }
 
   return {
     admins: [
       {
         id: nanoid(8),
-        username: 'admin',
+        username: usingEnvCreds ? envUsername : 'admin',
         passwordHash: bcrypt.hashSync(initialPassword, 10),
         // Recovery email for the "forgot password" flow (server/routes/admin.js
         // POST /forgot-password). Null until the admin sets one from
@@ -171,6 +196,13 @@ function save(data) {
   const tmpFile = DATA_FILE + '.tmp';
   fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2));
   fs.renameSync(tmpFile, DATA_FILE);
+
+  // Local file is already correct at this point - this is a best-effort
+  // mirror to Supabase so the data survives a restart on hosts with an
+  // ephemeral filesystem. No-op if Supabase isn't configured; never blocks
+  // or throws, see supabase-sync.js.
+  require('./supabase-sync').pushToSupabaseInBackground(data);
+
   return data;
 }
 
