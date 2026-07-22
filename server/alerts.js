@@ -61,18 +61,48 @@ function getTransporter() {
 }
 
 /**
- * Send a plain-text email via the configured SMTP transport. Used both by
- * reportLockout below and by the password-reset flow in routes/admin.js.
- * Throws if SMTP isn't configured or the send fails - callers that treat
- * email as best-effort (like reportLockout) should catch/ignore; callers
- * where the email IS the point (like password reset) should let the
- * failure surface as an error response rather than silently pretending
- * it sent.
+ * Send a plain-text email. Two backends are supported:
+ *
+ * 1. Resend's HTTP API (preferred) - sends over plain HTTPS (port 443),
+ *    which free-tier Render services can always reach. Render blocks
+ *    outbound traffic to SMTP ports 25/465/587 on free web services (since
+ *    Sept 2025), so SMTP can never work there no matter how it's
+ *    configured - this sidesteps that entirely. Used when RESEND_API_KEY
+ *    is set.
+ * 2. SMTP via nodemailer (fallback) - used if RESEND_API_KEY isn't set but
+ *    SMTP_HOST/SMTP_PORT are. Useful if this app is ever moved to a paid
+ *    Render plan (or another host) where SMTP ports aren't blocked.
+ *
+ * Used both by reportLockout below and by the password-reset flow in
+ * routes/admin.js. Throws if neither backend is configured or the send
+ * fails - callers that treat email as best-effort (like reportLockout)
+ * should catch/ignore; callers where the email IS the point (like password
+ * reset) should let the failure surface as an error response rather than
+ * silently pretending it sent.
  */
 async function sendMail({ to, subject, text }) {
+  const { RESEND_API_KEY } = process.env;
+
+  if (RESEND_API_KEY) {
+    const from = process.env.ALERT_EMAIL_FROM || 'onboarding@resend.dev';
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ from, to, subject, text })
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Resend API error (${res.status}): ${detail || res.statusText}`);
+    }
+    return;
+  }
+
   const t = getTransporter();
   if (!t) {
-    throw new Error('SMTP is not configured (SMTP_HOST/SMTP_PORT in .env)');
+    throw new Error('No email backend configured (set RESEND_API_KEY, or SMTP_HOST/SMTP_PORT in .env)');
   }
   await t.sendMail({ from: process.env.ALERT_EMAIL_FROM || SafeFrom(), to, subject, text });
 }
@@ -101,10 +131,11 @@ function reportLockout(key, summary) {
   if (now - current.lastAlertedAt < ALERT_DEBOUNCE_MS) return; // already alerted recently for this key
 
   const to = process.env.ALERT_EMAIL_TO;
-  if (!to || !getTransporter()) {
+  const emailConfigured = !!process.env.RESEND_API_KEY || !!getTransporter();
+  if (!to || !emailConfigured) {
     console.warn(
       '[security] Repeated lockout activity detected, but no email alert was sent because ' +
-      'ALERT_EMAIL_TO / SMTP_* are not configured in .env. See .env.example.'
+      'ALERT_EMAIL_TO and a backend (RESEND_API_KEY or SMTP_*) are not configured in .env. See .env.example.'
     );
     return;
   }
