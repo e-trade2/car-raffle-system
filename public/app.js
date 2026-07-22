@@ -797,40 +797,12 @@ function loadSavedPhoneIntoTickets(){
 }
 
 // ===================== PROFILE =====================
-// Phone numbers come in automatically via the bot's own "share contact"
-// step in the chat (see bot.js -> /api/telegram/link -> prefillFromTelegram
-// below) - Profile only ever displays that state, it doesn't prompt for
-// anything while inside Telegram. Manual entry is kept purely as a fallback
-// for the rare case where the app is opened outside Telegram (a plain
-// browser tab), where there's no bot conversation to draw a phone from at
-// all.
 function loadProfile(){
   const phone = localStorage.getItem('phone') || '';
   const customerId = localStorage.getItem('customerId') || '';
   document.getElementById('profilePhoneVal').textContent = phone || 'Not set';
-
-  // Nothing useful to show until the person has actually placed an order -
-  // "Not set (place an order to get one)" was just clutter under a phone
-  // number that already displays fine on its own.
-  const idCard = document.getElementById('profileCustomerIdCard');
-  if (customerId){
-    document.getElementById('profileCustomerIdVal').textContent = customerId;
-    idCard.style.display = '';
-  } else {
-    idCard.style.display = 'none';
-  }
-
-  const panel = document.getElementById('profilePhonePanel');
-  const inTelegram = !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
-
-  if (phone || inTelegram){
-    // Either already have a number, or we're inside Telegram where the
-    // bot chat (not this screen) is the only place a number gets shared.
-    panel.style.display = 'none';
-  } else {
-    panel.style.display = '';
-    document.getElementById('profilePhoneInput').value = phone;
-  }
+  document.getElementById('profileCustomerIdVal').textContent = customerId || 'Not set (place an order to get one)';
+  document.getElementById('profilePhoneInput').value = phone;
 }
 document.getElementById('profileSaveBtn').addEventListener('click', ()=>{
   const phone = document.getElementById('profilePhoneInput').value.trim();
@@ -859,32 +831,31 @@ setInterval(loadRaffles, 30000);
 // works fine either way, just without the prefill.
 async function prefillFromTelegram(){
   const initData = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData;
-  if (!initData) return false;
+  if (!initData) return;
   try{
     const res = await fetch(`${API}/telegram/prefill`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData })
     });
-    if (!res.ok) return false;
+    if (!res.ok) return;
     const data = await res.json();
     if (data.linked && data.phone){
       localStorage.setItem('phone', data.phone);
       if (data.fullName) localStorage.setItem('fullName', data.fullName);
+      if (data.customerId) localStorage.setItem('customerId', data.customerId);
       // Covers the case where the checkout form already rendered (with
       // empty/stale values) before this fetch resolved.
       const phoneEl = document.getElementById('checkoutPhone');
       const nameEl = document.getElementById('checkoutFullName');
       if (phoneEl && !phoneEl.value) phoneEl.value = data.phone;
       if (nameEl && !nameEl.value && data.fullName) nameEl.value = data.fullName;
-      // Covers the Profile tab, which otherwise still shows "Not set" /
-      // the share-contact button until it's told to re-render.
-      if (document.getElementById('profileView').style.display !== 'none'){
-        loadProfile();
-      }
-      return true;
+      // Same idea for "My Tickets": if the person already tapped that tab
+      // before this fetch resolved, it rendered empty (no customerId yet).
+      // Re-run the load now that we actually have one, so they don't have
+      // to manually re-tap the tab to see their own orders show up.
+      if (data.customerId) loadSavedPhoneIntoTickets();
     }
-    return false;
-  }catch(e){ /* prefill is a convenience, not required - fail quiet */ return false; }
+  }catch(e){ /* prefill is a convenience, not required - fail quiet */ }
 }
 prefillFromTelegram();
