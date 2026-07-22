@@ -1,4 +1,11 @@
 require('dotenv').config();
+// Render's free-tier containers have no outbound IPv6 route. Node's default
+// DNS resolution order can still hand back an IPv6 (AAAA) address first for
+// hosts that have both - and 'family: 4' on an individual socket doesn't
+// reliably override that on every Node version. Setting this here forces
+// IPv4-first resolution for every DNS lookup in the whole process (SMTP,
+// Supabase, etc.), which is more robust than fixing it per-call.
+require('dns').setDefaultResultOrder('ipv4first');
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
