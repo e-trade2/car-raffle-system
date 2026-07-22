@@ -22,6 +22,15 @@ try {
   // avoids a hard crash if someone strips it out of node_modules manually.
 }
 
+const dns = require('dns');
+// Belt-and-suspenders alongside dns.setDefaultResultOrder('ipv4first') in
+// index.js: pass nodemailer an explicit lookup function that ONLY resolves
+// A (IPv4) records, so there's no path left where an AAAA record sneaks
+// through and Render's container tries (and fails) to route over IPv6.
+function ipv4OnlyLookup(hostname, options, callback) {
+  dns.lookup(hostname, { family: 4 }, callback);
+}
+
 const ALERT_DEBOUNCE_MS = 10 * 60 * 1000; // don't re-alert on the same key more than once per 10 min
 const ALERT_ESCALATE_COUNT = 3; // only alert once a key has fired at least this many times in the window
 
@@ -42,8 +51,11 @@ function getTransporter() {
     // route. Gmail's SMTP hostname resolves to both an IPv4 and IPv6
     // address, and Node's default DNS resolution can pick the IPv6 one -
     // which then fails with ENETUNREACH on a host that can't route it.
-    // Forcing IPv4 here sidesteps that mismatch entirely.
-    family: 4
+    // Forcing IPv4 here sidesteps that mismatch entirely. 'family' alone
+    // wasn't enough on Render's runtime (still saw ENETUNREACH against an
+    // IPv6 address), so 'lookup' pins the DNS resolution itself to IPv4.
+    family: 4,
+    lookup: ipv4OnlyLookup
   });
   return transporter;
 }
