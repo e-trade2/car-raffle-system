@@ -37,7 +37,13 @@ function getTransporter() {
     host: SMTP_HOST,
     port: Number(SMTP_PORT),
     secure: Number(SMTP_PORT) === 465,
-    auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined
+    auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+    // Some hosts (e.g. Render's free-tier containers) have no outbound IPv6
+    // route. Gmail's SMTP hostname resolves to both an IPv4 and IPv6
+    // address, and Node's default DNS resolution can pick the IPv6 one -
+    // which then fails with ENETUNREACH on a host that can't route it.
+    // Forcing IPv4 here sidesteps that mismatch entirely.
+    family: 4
   });
   return transporter;
 }
