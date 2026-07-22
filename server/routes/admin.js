@@ -477,7 +477,7 @@ router.get('/orders', (req, res) => {
   if (status) orders = orders.filter(o => o.status === status);
   orders = orders.map(o => {
     const raffle = data.raffles.find(r => r.id === o.raffleId);
-    return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown' };
+    return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown', raffleStatus: raffle ? raffle.status : null };
   });
   res.json({ orders });
 });
@@ -551,6 +551,45 @@ router.post('/orders/:id/unconfirm', (req, res) => {
   order.unconfirmedAt = new Date().toISOString();
   db.save(data);
   res.json({ order });
+});
+
+// ---- Delete an order record ----
+// Deliberately restrictive about *when* this is allowed, because unlike
+// reject/unconfirm this can't be undone - there's no db.json history to
+// recover a deleted row from. Allowed only when the order can't represent
+// a live, reversible decision anymore:
+//   - already rejected/expired: no money or held number attached, so
+//     deleting it can't desync anything - it was already functionally gone.
+//   - its raffle has ended: even a 'confirmed' order here is done growing -
+//     the raffle it belongs to is over, nothing will re-sell that number,
+//     and you (the admin) are the one deciding you no longer need that
+//     record kept around. Ended-raffle orders are excluded from this
+//     safety net on purpose, at the admin's request, to allow cleaning up
+//     old raffles entirely - just be aware this also erases your own
+//     revenue/sales history for that raffle if you delete a confirmed one.
+router.delete('/orders/:id', (req, res) => {
+  const data = db.load();
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  const raffle = data.raffles.find(r => r.id === order.raffleId);
+  const raffleEnded = raffle ? raffle.status === 'ended' : false;
+  const orderInactive = ['rejected', 'expired'].includes(order.status);
+  if (!orderInactive && !raffleEnded) {
+    return res.status(400).json({
+      error: `Cannot delete an order in status "${order.status}" unless its raffle has ended. Reject or unconfirm it first.`
+    });
+  }
+
+  if (raffle && raffle.pending) {
+    for (const n of order.ticketNumbers) {
+      const p = raffle.pending[String(n)];
+      if (p && p.orderId === order.id) delete raffle.pending[String(n)];
+    }
+  }
+  data.orders = data.orders.filter(o => o.id !== order.id);
+  db.save(data);
+  res.json({ ok: true });
 });
 
 // ---- Banks ----
