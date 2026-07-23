@@ -501,6 +501,26 @@ router.delete('/raffles/:id', (req, res) => {
   const data = db.load();
   const idx = data.raffles.findIndex(r => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Raffle not found' });
+  const raffle = data.raffles[idx];
+
+  // Preserve the winner announcement independently of the raffle it came
+  // from - see archivedWinners in db.js. Without this, deleting an ended
+  // raffle would silently pull its winner out of the buyer-facing
+  // notification panel along with it.
+  if (raffle.winner) {
+    data.archivedWinners = data.archivedWinners || [];
+    data.archivedWinners.push({
+      id: nanoid(8),
+      raffleTitle: raffle.title,
+      imageUrl: raffle.imageUrl,
+      number: raffle.winner.number,
+      fullName: raffle.winner.fullName,
+      phone: raffle.winner.phone,
+      drawnAt: raffle.winner.drawnAt,
+      archivedAt: new Date().toISOString()
+    });
+  }
+
   data.raffles.splice(idx, 1);
 
   // Cascade delete: an order for a raffle that no longer exists has nothing
@@ -723,6 +743,27 @@ router.delete('/raffles/:id/winner', (req, res) => {
   if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
   delete raffle.winner;
   raffle.status = 'active';
+  db.save(data);
+  res.json({ ok: true });
+});
+
+// ---- Archived winners (from deleted raffles) ----
+// Raw (unmasked) data for the admin to review/manage - the public-facing
+// version of this list is GET /api/winners in routes/public.js, which
+// masks the name.
+router.get('/winners', (req, res) => {
+  const data = db.load();
+  const winners = [...(data.archivedWinners || [])].sort((a, b) => new Date(b.drawnAt) - new Date(a.drawnAt));
+  res.json({ winners });
+});
+
+// Admin-only removal - this is the "stays until the admin wants it gone"
+// control for an archived winner announcement.
+router.delete('/winners/:id', (req, res) => {
+  const data = db.load();
+  const idx = (data.archivedWinners || []).findIndex(w => w.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Archived winner not found' });
+  data.archivedWinners.splice(idx, 1);
   db.save(data);
   res.json({ ok: true });
 });
