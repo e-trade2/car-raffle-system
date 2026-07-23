@@ -370,7 +370,11 @@ router.get('/summary', (req, res) => {
 // ---- Raffles CRUD ----
 router.get('/raffles', (req, res) => {
   const data = db.load();
-  res.json({ raffles: data.raffles.map(r => ({ ...publicRaffle(r), takenNumbers: r.takenNumbers })) });
+  // publicRaffle() masks the winner's name for the public-facing API; the
+  // admin dashboard is authenticated and is exactly where the real name/
+  // phone/ticket number needs to be visible and editable, so swap the
+  // masked winner back out for the raw one here.
+  res.json({ raffles: data.raffles.map(r => ({ ...publicRaffle(r), takenNumbers: r.takenNumbers, winner: r.winner || null })) });
 });
 
 // Upload a car photo -> returns { imageUrl } to plug into raffle create/edit.
@@ -686,6 +690,41 @@ router.post('/raffles/:id/draw', (req, res) => {
   raffle.status = 'ended';
   db.save(data);
   res.json({ winner: raffle.winner });
+});
+
+// ---- Manually set/overwrite a winner ----
+// Deliberately does NOT cross-check the number/name against real orders -
+// this is an admin override for cases the random draw can't handle
+// (announcing an off-platform winner, correcting a mistake, re-entering a
+// paper draw result, etc), so it takes the admin's input as given.
+router.post('/raffles/:id/winner', (req, res) => {
+  const { number, fullName, phone } = req.body;
+  if (!number || !String(number).trim()) return res.status(400).json({ error: 'Ticket number is required' });
+  if (!fullName || !String(fullName).trim()) return res.status(400).json({ error: 'Winner name is required' });
+  const data = db.load();
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+  raffle.winner = {
+    number: String(number).trim(),
+    orderId: null,
+    fullName: String(fullName).trim(),
+    phone: phone ? String(phone).trim() : '',
+    drawnAt: new Date().toISOString()
+  };
+  raffle.status = 'ended';
+  db.save(data);
+  res.json({ winner: raffle.winner });
+});
+
+// ---- Clear a raffle's winner (undo a draw or manual entry) ----
+router.delete('/raffles/:id/winner', (req, res) => {
+  const data = db.load();
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+  delete raffle.winner;
+  raffle.status = 'active';
+  db.save(data);
+  res.json({ ok: true });
 });
 
 module.exports = router;
