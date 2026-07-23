@@ -117,7 +117,15 @@ function defaultData() {
     banks: [
       { id: nanoid(6), name: 'Telebirr', holder: 'Getachew', account: '0924242419' },
       { id: nanoid(6), name: 'Commercial Bank of Ethiopia', holder: 'Getachew Fikadu Jirata', account: '1000528139489' }
-    ]
+    ],
+    // Winner records that survive their raffle being deleted. A raffle's
+    // `winner` field normally lives on the raffle itself, but deleting the
+    // raffle (server/routes/admin.js DELETE /raffles/:id) removes that
+    // object entirely - without this, a buyer-facing "Latest Winners"
+    // announcement would silently vanish the moment the admin cleaned up
+    // an old raffle. Entries here are copied over at delete-time and stay
+    // visible until an admin explicitly removes them (DELETE /winners/:id).
+    archivedWinners: []
   };
 }
 
@@ -133,6 +141,7 @@ function load() {
   // no customer id and could never pass the GET /tickets check below.
   if (!Array.isArray(data.customers)) data.customers = [];
   if (!Array.isArray(data.telegramUsers)) data.telegramUsers = [];
+  if (!Array.isArray(data.archivedWinners)) data.archivedWinners = [];
   for (const admin of data.admins || []) {
     if (admin.email === undefined) admin.email = null;
     if (admin.resetTokenHash === undefined) admin.resetTokenHash = null;
