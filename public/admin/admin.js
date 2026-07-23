@@ -79,6 +79,7 @@ function initDashboard(){
   loadOrders();
   loadRaffles();
   loadBanks();
+  loadArchivedWinners();
 }
 
 // ===== Summary =====
@@ -280,7 +281,7 @@ async function loadRaffles(){
       await api(`/raffles/${b.dataset.activate}`, { method:'PUT', body: JSON.stringify({ status:'active' }) }); loadRaffles();
     }));
     wrap.querySelectorAll('[data-delete]').forEach(b=> b.addEventListener('click', async ()=>{
-      if (!confirm('Delete this raffle and all its data, including every order/ticket placed on it?')) return;
+      if (!confirm('Delete this raffle and all its data, including every order/ticket placed on it? (If it has a winner, that announcement is kept in the Winners tab.)')) return;
       b.disabled = true;
       try{
         const res = await api(`/raffles/${b.dataset.delete}`, { method:'DELETE' });
@@ -408,6 +409,34 @@ async function loadBanks(){
     `).join('');
     wrap.querySelectorAll('[data-delbank]').forEach(btn=> btn.addEventListener('click', async ()=>{
       await api(`/banks/${btn.dataset.delbank}`, { method:'DELETE' }); loadBanks();
+    }));
+  }catch(e){ console.error(e); }
+}
+
+// Winners left behind after their raffle was deleted - see archivedWinners
+// in db.js. These keep showing in the buyer app's notification panel until
+// removed here.
+async function loadArchivedWinners(){
+  try{
+    const data = await api('/winners');
+    const wrap = document.getElementById('archivedWinnersList');
+    if (!data.winners.length){ wrap.innerHTML = '<div class="empty-msg">No archived winners</div>'; return; }
+    wrap.innerHTML = data.winners.map(w=> `
+      <div class="raffle-item">
+        <div>
+          <div style="font-weight:700;">🏆 ${esc(w.fullName)} <span style="color:var(--text-tertiary);font-weight:400;">— ticket #${esc(w.number)}</span></div>
+          <div style="font-size:12px;color:var(--text-tertiary);">${esc(w.raffleTitle)}${w.phone ? ` · ${esc(w.phone)}` : ''} · drawn ${new Date(w.drawnAt).toLocaleString()}</div>
+        </div>
+        <button class="btn-red" data-delwinner="${esc(w.id)}">Remove</button>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-delwinner]').forEach(btn=> btn.addEventListener('click', async ()=>{
+      if (!confirm('Remove this winner announcement? It will disappear from the buyer app right away.')) return;
+      btn.disabled = true;
+      try{
+        await api(`/winners/${btn.dataset.delwinner}`, { method:'DELETE' });
+        loadArchivedWinners();
+      }catch(e){ alert(e.message); btn.disabled = false; }
     }));
   }catch(e){ console.error(e); }
 }
