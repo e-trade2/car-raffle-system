@@ -121,7 +121,7 @@
     <div class="tab-btn active" data-panel="ordersPanel">Orders</div>
     <div class="tab-btn" data-panel="rafflesPanel">Raffles</div>
     <div class="tab-btn" data-panel="banksPanel">Bank Accounts</div>
-    <div class="tab-btn" data-panel="winnersPanel">Winners</div>
+    <div class="tab-btn" data-panel="winnersPanel">Notifications</div>
     <div class="tab-btn" data-panel="settingsPanel">Settings</div>
   </div>
 
@@ -186,14 +186,30 @@
     </div>
   </div>
 
-  <!-- WINNERS (archived from deleted raffles) -->
+  <!-- NOTIFICATIONS (buyer-facing, entirely admin-authored) -->
   <div class="panel" id="winnersPanel">
     <div class="card">
-      <h3>Archived Winner Announcements</h3>
+      <h3>Post a Notification</h3>
       <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:10px;">
-        Winners stay here (and keep showing in the buyer app's notification panel) after their raffle is deleted, until you remove them below. Winners on raffles that still exist are managed from the Raffles tab instead.
+        This is the only thing buyers see in their notification panel. Drawing or setting a raffle winner does NOT post here automatically — write and post the announcement yourself, whether it's a winner, a system update, or anything else.
       </div>
-      <div id="archivedWinnersList"></div>
+      <div class="grid2">
+        <div>
+          <label>Type</label>
+          <select id="newNotifType">
+            <option value="winner">Winner Announcement</option>
+            <option value="system" selected>System / General Update</option>
+          </select>
+        </div>
+        <div><label>Ticket Number (optional, winner announcements only)</label><input type="text" id="newNotifTicket" placeholder="e.g. 452"></div>
+      </div>
+      <div><label>Title</label><input type="text" id="newNotifTitle" placeholder="e.g. Abebe Kebede won the BYD Yuan UP!"></div>
+      <div><label>Message</label><textarea id="newNotifMessage" rows="3" placeholder="Write what buyers will see..." style="width:100%;box-sizing:border-box;background:var(--bg-input, #10151c);color:inherit;border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px;font:inherit;resize:vertical;"></textarea></div>
+      <button class="btn-gold" id="postNotifBtn" style="max-width:200px;margin-top:10px;">Post Notification</button>
+    </div>
+    <div class="card">
+      <h3>Posted Notifications</h3>
+      <div id="notifsList"></div>
     </div>
   </div>
 
