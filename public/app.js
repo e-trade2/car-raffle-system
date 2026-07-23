@@ -53,8 +53,8 @@ const TEXT = {
     uploadHint:"Tap to upload your payment receipt",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
     ticketNo:"Ticket #", banksLbl:"Select bank to view account (optional)",
-    notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
-    noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
+    notifTitle:"Notifications", latestWinnersLbl:"Announcements", myTicketsLblNotif:"My Tickets",
+    noWinnersLbl:"No announcements yet", noTicketsLbl:"No tickets found",
     wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
   },
   am: {
@@ -75,8 +75,8 @@ const TEXT = {
     uploadHint:"የክፍያ ደረሰኝዎን ለመስቀል ይንኩ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
     ticketNo:"ትኬት ቁ.", banksLbl:"የባንክ ሂሳብ ለማየት ይምረጡ (አማራጭ)",
-    notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
-    noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
+    notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"ማስታወቂያዎች", myTicketsLblNotif:"የኔ ትኬቶች",
+    noWinnersLbl:"እስካሁን ምንም ማስታወቂያ የለም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
     wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
   },
   om: {
@@ -97,8 +97,8 @@ const TEXT = {
     uploadHint:"Ragaa kaffaltii keessan fe'uuf tuqaa",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
     ticketNo:"Lakk. Tikeetii", banksLbl:"Herrega baankii ilaaluuf filadhu (filannoo)",
-    notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
-    noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
+    notifTitle:"Beeksisoota", latestWinnersLbl:"Beeksisoota", myTicketsLblNotif:"Tikeetii Koo",
+    noWinnersLbl:"Hanga ammaatti beeksisni hin jiru", noTicketsLbl:"Tikeetiin hin argamne",
     wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
   }
 };
@@ -149,47 +149,77 @@ document.addEventListener('click', (e)=>{
 });
 
 // ===================== NOTIFICATIONS =====================
-// "Seen" winners are tracked client-side only (by winner id) so the red
-// dot clears once the buyer has actually opened the panel, without
-// needing a server-side read-receipt for something this low-stakes.
-function getSeenWinnerIds(){
-  try{ return JSON.parse(localStorage.getItem('seenWinnerRaffleIds') || '[]'); }catch(e){ return []; }
+// Everything here comes from the admin-authored feed (GET /api/notifications)
+// - see server/routes/admin.js POST /notifications. Drawing/setting a
+// raffle winner does NOT feed this automatically; an admin has to
+// explicitly write and post an announcement first.
+
+// "Seen" is tracked client-side only (by notification id) so the red dot
+// clears once the buyer has actually opened the panel, without needing a
+// server-side read-receipt for something this low-stakes.
+function getSeenNotifIds(){
+  try{ return JSON.parse(localStorage.getItem('seenNotifIds') || '[]'); }catch(e){ return []; }
 }
-function markWinnersSeen(ids){
-  localStorage.setItem('seenWinnerRaffleIds', JSON.stringify(ids));
+function markNotifsSeen(ids){
+  localStorage.setItem('seenNotifIds', JSON.stringify(ids));
 }
-// Cache of the last /winners fetch, so the dot can be recomputed (e.g.
-// after a language change) without re-hitting the network every time.
-let latestWinners = [];
-async function loadWinners(){
-  try{
-    const res = await fetch(`${API}/winners`);
-    const data = await res.json();
-    latestWinners = res.ok ? (data.winners || []) : [];
-  }catch(e){ console.error(e); latestWinners = []; }
+// Per-buyer dismissal, separate from "seen". Dismissing hides a
+// notification from this browser only - it doesn't touch the server, so
+// it stays visible to every other buyer and in the admin's Notifications
+// tab. Different from the admin's Remove button (DELETE
+// /admin/notifications/:id), which deletes it for everyone.
+function getDismissedNotifIds(){
+  try{ return JSON.parse(localStorage.getItem('dismissedNotifIds') || '[]'); }catch(e){ return []; }
+}
+function dismissNotif(id){
+  const dismissed = getDismissedNotifIds();
+  if (!dismissed.includes(id)) dismissed.push(id);
+  localStorage.setItem('dismissedNotifIds', JSON.stringify(dismissed));
+  renderNotifsSection();
   updateNotifDot();
 }
+// Cache of the last /notifications fetch, so the dot can be recomputed
+// (e.g. after a language change) without re-hitting the network every time.
+let latestNotifs = [];
+async function loadNotifs(){
+  try{
+    const res = await fetch(`${API}/notifications`);
+    const data = await res.json();
+    latestNotifs = res.ok ? (data.notifications || []) : [];
+  }catch(e){ console.error(e); latestNotifs = []; }
+  updateNotifDot();
+}
+function visibleNotifs(){
+  const dismissed = getDismissedNotifIds();
+  return latestNotifs.filter(n => !dismissed.includes(n.id));
+}
 function updateNotifDot(){
-  const seen = getSeenWinnerIds();
-  const hasUnseen = latestWinners.some(w => !seen.includes(w.id));
+  const seen = getSeenNotifIds();
+  const hasUnseen = visibleNotifs().some(n => !seen.includes(n.id));
   document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
 }
-function renderWinnersSection(){
+function renderNotifsSection(){
   const wrap = document.getElementById('notifWinnersList');
-  if (!latestWinners.length){
+  const notifs = visibleNotifs();
+  if (!notifs.length){
     wrap.innerHTML = `<div class="notif-empty-box">${t('noWinnersLbl')}</div>`;
     return;
   }
-  wrap.innerHTML = latestWinners.slice(0, 8).map(w => `
+  wrap.innerHTML = notifs.slice(0, 12).map(n => `
     <div class="notif-card">
-      <div class="notif-icon notif-winner-icon">🏆</div>
+      <div class="notif-icon ${n.type === 'winner' ? 'notif-winner-icon' : 'notif-ticket-icon'}">${n.type === 'winner' ? '🏆' : '🔔'}</div>
       <div class="notif-card-body">
-        <div class="notif-card-title">${esc(w.name)} ${t('wonLbl')} ${esc(w.raffleTitle)}</div>
-        <div class="notif-card-sub">${new Date(w.drawnAt).toLocaleDateString()}</div>
+        <div class="notif-card-title">${esc(n.title)}</div>
+        <div class="notif-card-sub">${esc(n.message)}</div>
+        <div class="notif-card-sub">${new Date(n.createdAt).toLocaleDateString()}</div>
       </div>
-      <div class="notif-card-badge">#${esc(w.number)}</div>
+      ${n.ticketNumber ? `<div class="notif-card-badge">#${esc(n.ticketNumber)}</div>` : ''}
+      <button class="notif-card-dismiss" data-dismiss-notif="${esc(n.id)}" title="Dismiss" aria-label="Dismiss">✕</button>
     </div>
   `).join('');
+  wrap.querySelectorAll('[data-dismiss-notif]').forEach(btn=>{
+    btn.addEventListener('click', ()=> dismissNotif(btn.dataset.dismissNotif));
+  });
 }
 function renderTicketsSection(orders){
   const wrap = document.getElementById('notifTicketsList');
@@ -208,8 +238,8 @@ function renderTicketsSection(orders){
   `).join('');
 }
 async function renderNotifPanel(){
-  await loadWinners();
-  renderWinnersSection();
+  await loadNotifs();
+  renderNotifsSection();
   const phone = localStorage.getItem('phone') || '';
   const customerId = localStorage.getItem('customerId') || '';
   if (!phone || !customerId){ renderTicketsSection([]); return; }
@@ -222,7 +252,7 @@ async function renderNotifPanel(){
 document.getElementById('notifBtn').addEventListener('click', async ()=>{
   await renderNotifPanel();
   document.getElementById('notifModalBackdrop').classList.add('show');
-  markWinnersSeen(latestWinners.map(w => w.id));
+  markNotifsSeen(latestNotifs.map(n => n.id));
   updateNotifDot();
 });
 document.getElementById('notifModalClose').addEventListener('click', ()=>{
@@ -231,7 +261,7 @@ document.getElementById('notifModalClose').addEventListener('click', ()=>{
 document.getElementById('notifModalBackdrop').addEventListener('click', (e)=>{
   if (e.target.id === 'notifModalBackdrop') document.getElementById('notifModalBackdrop').classList.remove('show');
 });
-loadWinners();
+loadNotifs();
 
 let isLight = false;
 document.getElementById('themeBtn').addEventListener('click', ()=>{
