@@ -366,18 +366,14 @@ function tickAllCountdowns(){
 setInterval(tickAllCountdowns, 1000);
 
 // ===================== NUMBER PICKER =====================
-let numGridStart = 1;
-const NUM_PAGE = 210;
-
 async function openNumberPicker(){
   if (!currentRaffle) return;
-  numGridStart = 1;
   document.getElementById('numGrid').innerHTML = '';
   document.getElementById('pickNumTitle').textContent = t('pickLabel');
   document.getElementById('numberModalConfirm').textContent = t('confirmSelection');
   updatePickSub();
   document.getElementById('numberModalBackdrop').classList.add('show');
-  await loadNumberPage();
+  await loadAllNumbers();
 }
 
 function updatePickSub(){
@@ -395,11 +391,17 @@ function updatePickSub(){
   }
 }
 
-async function loadNumberPage(){
-  const end = Math.min(currentRaffle.totalNumbers, numGridStart + NUM_PAGE - 1);
-  const res = await fetch(`${API}/raffles/${currentRaffle.id}/numbers?start=${numGridStart}&end=${end}`);
+// Fetches every number for this raffle in a single request and renders
+// them all at once, so picking a number is just one continuous scroll
+// instead of clicking "Load more" repeatedly. Fine for raffles up to a
+// few thousand numbers (typical for this app); if a raffle ever had, say,
+// tens of thousands of numbers, this would be worth paginating again -
+// not a concern at the sizes this app actually uses.
+async function loadAllNumbers(){
+  const res = await fetch(`${API}/raffles/${currentRaffle.id}/numbers?start=1&end=${currentRaffle.totalNumbers}`);
   const data = await res.json();
   const grid = document.getElementById('numGrid');
+  const frag = document.createDocumentFragment();
   data.numbers.forEach(item=>{
     const cell = document.createElement('div');
     cell.className = 'num-cell';
@@ -409,12 +411,10 @@ async function loadNumberPage(){
     if (item.status === 'available' || selectedNumbers.includes(item.n)){
       cell.addEventListener('click', ()=> toggleNumber(item.n, cell));
     }
-    grid.appendChild(cell);
+    frag.appendChild(cell);
   });
-  numGridStart = end + 1;
-  document.getElementById('numLoadMore').style.display = numGridStart > currentRaffle.totalNumbers ? 'none' : 'block';
+  grid.appendChild(frag);
 }
-document.getElementById('numLoadMore').addEventListener('click', loadNumberPage);
 
 function toggleNumber(n, cell){
   const idx = selectedNumbers.indexOf(n);
