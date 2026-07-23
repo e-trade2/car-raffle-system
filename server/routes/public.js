@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData, maskWinnerName } = require('../utils');
+const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData } = require('../utils');
 const { reportLockout } = require('../alerts');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
@@ -145,29 +145,16 @@ router.get('/raffles', (req, res) => {
 // winner announcement would disappear the instant the admin cleaned up an
 // old raffle, which isn't what buyers expect from a winner list. Names are
 // masked the same way publicRaffle() masks them - this is public data.
-router.get('/winners', (req, res) => {
+// ---- Buyer notification feed ----
+// Entirely admin-authored (see POST /api/admin/notifications) - drawing or
+// setting a raffle winner does NOT land here automatically, so nothing
+// reaches a buyer's device until an admin has explicitly written and
+// posted it. No masking needed since the admin controls the wording
+// themselves, unlike the old auto-generated version of this endpoint.
+router.get('/notifications', (req, res) => {
   const data = db.load();
-  const fromRaffles = data.raffles
-    .filter(r => r.status === 'ended' && r.winner)
-    .map(r => ({
-      id: r.id,
-      raffleTitle: r.title,
-      imageUrl: r.imageUrl,
-      number: r.winner.number,
-      name: maskWinnerName(r.winner.fullName),
-      drawnAt: r.winner.drawnAt
-    }));
-  const fromArchived = (data.archivedWinners || []).map(w => ({
-    id: w.id,
-    raffleTitle: w.raffleTitle,
-    imageUrl: w.imageUrl,
-    number: w.number,
-    name: maskWinnerName(w.fullName),
-    drawnAt: w.drawnAt
-  }));
-  const winners = [...fromRaffles, ...fromArchived]
-    .sort((a, b) => new Date(b.drawnAt) - new Date(a.drawnAt));
-  res.json({ winners });
+  const notifications = [...(data.notifications || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json({ notifications });
 });
 
 // ---- Raffle detail ----
