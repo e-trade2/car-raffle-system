@@ -95,6 +95,18 @@ function numberStatus(raffle, n) {
   return 'available';
 }
 
+// A winner's full name lives on the order (and is fine for the admin panel
+// to show in full), but broadcasting it verbatim to every visitor via the
+// public /raffles list is more than this feature needs - "Abebe K." reads
+// just as well as a winner announcement and doesn't hand out a stranger's
+// full legal name. Falls back gracefully for single-word names.
+function maskWinnerName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Winner';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
+
 function publicRaffle(raffle) {
   const { soldCount, pendingCount } = getAvailability(raffle);
   const remaining = raffle.totalNumbers - soldCount - pendingCount;
@@ -111,7 +123,16 @@ function publicRaffle(raffle) {
     drawAt: raffle.drawAt,
     soldCount,
     remaining: Math.max(0, remaining),
-    percentFilled: Math.round((soldCount / raffle.totalNumbers) * 100)
+    percentFilled: Math.round((soldCount / raffle.totalNumbers) * 100),
+    // Only surfaced once a raffle has actually been drawn - undrawn raffles
+    // simply omit the field rather than sending winner:null everywhere.
+    ...(raffle.status === 'ended' && raffle.winner ? {
+      winner: {
+        number: raffle.winner.number,
+        name: maskWinnerName(raffle.winner.fullName),
+        drawnAt: raffle.winner.drawnAt
+      }
+    } : {})
   };
 }
 
