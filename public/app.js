@@ -211,7 +211,7 @@ function raffleCardHtml(raffle, idx){
     : raffle.badge === 'new' ? `<div class="badge-new">NEW</div>` : '';
   return `
   <div class="hero" style="margin-top:${idx>0?'14px':'0'};">
-    <div class="hero-media">
+    <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
       ${badge}
       <div class="badge-rating">★★★★★ <span class="rating-num">${raffle.rating.toFixed(1)}</span></div>
       ${carHtml(raffle)}
@@ -287,7 +287,7 @@ function renderDetail(raffle){
       <span>${t('backLabel')}</span>
     </div>
     <div class="hero">
-      <div class="hero-media">
+      <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
         <div class="badge-new">NEW</div>
         <div class="badge-rating">★★★★★ <span class="rating-num">${raffle.rating.toFixed(1)}</span></div>
         ${carHtml(raffle)}
