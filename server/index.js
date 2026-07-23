@@ -108,8 +108,21 @@ app.use('/uploads/cars', express.static(carPhotosDir));
 app.use('/api', publicRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Static frontend (customer app + admin panel)
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Static frontend (customer app + admin panel).
+// index.html gets explicit no-cache headers - Telegram's in-app browser
+// has been observed holding onto a stale copy of it (and whatever it
+// references) well past a redeploy, seemingly ignoring normal conditional
+// caching. Bumping the ?v= on /app.js in index.html (see public/index.html)
+// is what actually forces a fresh app.js fetch when this app updates -
+// this header just makes sure the HTML *pointing* to that URL isn't itself
+// stale.
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  }
+}));
 
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'admin', 'index.html'));
