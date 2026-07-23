@@ -53,6 +53,9 @@ const TEXT = {
     uploadHint:"Tap to upload your payment receipt",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
     ticketNo:"Ticket #", banksLbl:"Select bank to view account (optional)",
+    notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
+    noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
+    wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -72,6 +75,9 @@ const TEXT = {
     uploadHint:"የክፍያ ደረሰኝዎን ለመስቀል ይንኩ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
     ticketNo:"ትኬት ቁ.", banksLbl:"የባንክ ሂሳብ ለማየት ይምረጡ (አማራጭ)",
+    notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
+    noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
+    wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
   },
   om: {
     backLabel:"Deebi'i", cdLabel:"Yeroo Hafe",
@@ -91,6 +97,9 @@ const TEXT = {
     uploadHint:"Ragaa kaffaltii keessan fe'uuf tuqaa",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
     ticketNo:"Lakk. Tikeetii", banksLbl:"Herrega baankii ilaaluuf filadhu (filannoo)",
+    notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
+    noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
+    wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -113,8 +122,12 @@ function applyLang(lang){
   document.getElementById('navTickets').textContent = t('navTickets');
   document.getElementById('navProfile').textContent = t('navProfile');
   document.getElementById('myTicketsTitle').textContent = t('myTicketsTitle');
+  document.getElementById('notifModalTitle').textContent = t('notifTitle');
+  document.getElementById('notifWinnersTitle').textContent = t('latestWinnersLbl');
+  document.getElementById('notifTicketsTitle').textContent = t('myTicketsLblNotif');
   if (currentRaffle) renderDetail(currentRaffle);
   renderHomeList();
+  if (document.getElementById('notifModalBackdrop').classList.contains('show')) renderNotifPanel();
 }
 
 document.getElementById('langBtn').addEventListener('click', ()=>{
@@ -133,6 +146,84 @@ document.addEventListener('click', (e)=>{
     document.getElementById('langMenu').classList.remove('show');
     document.getElementById('langBtn').classList.remove('open');
   }
+});
+
+// ===================== NOTIFICATIONS =====================
+// "Seen" winners are tracked client-side only (by raffle id) so the red
+// dot clears once the buyer has actually opened the panel, without
+// needing a server-side read-receipt for something this low-stakes.
+function getSeenWinnerIds(){
+  try{ return JSON.parse(localStorage.getItem('seenWinnerRaffleIds') || '[]'); }catch(e){ return []; }
+}
+function markWinnersSeen(ids){
+  localStorage.setItem('seenWinnerRaffleIds', JSON.stringify(ids));
+}
+function endedRafflesWithWinner(){
+  return (raffles || [])
+    .filter(r => r.status === 'ended' && r.winner)
+    .sort((a,b) => new Date(b.winner.drawnAt) - new Date(a.winner.drawnAt));
+}
+function updateNotifDot(){
+  const seen = getSeenWinnerIds();
+  const hasUnseen = endedRafflesWithWinner().some(r => !seen.includes(r.id));
+  document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
+}
+function renderWinnersSection(){
+  const wrap = document.getElementById('notifWinnersList');
+  const winners = endedRafflesWithWinner();
+  if (!winners.length){
+    wrap.innerHTML = `<div class="notif-empty-box">${t('noWinnersLbl')}</div>`;
+    return;
+  }
+  wrap.innerHTML = winners.slice(0, 8).map(r => `
+    <div class="notif-card">
+      <div class="notif-icon notif-winner-icon">🏆</div>
+      <div class="notif-card-body">
+        <div class="notif-card-title">${esc(r.winner.name)} ${t('wonLbl')} ${esc(r.title)}</div>
+        <div class="notif-card-sub">${new Date(r.winner.drawnAt).toLocaleDateString()}</div>
+      </div>
+      <div class="notif-card-badge">#${r.winner.number}</div>
+    </div>
+  `).join('');
+}
+function renderTicketsSection(orders){
+  const wrap = document.getElementById('notifTicketsList');
+  if (!orders || !orders.length){
+    wrap.innerHTML = `<div class="notif-empty-box">${t('noTicketsLbl')}<div style="margin-top:6px;font-size:11.5px;">${t('noTicketsHint')}</div></div>`;
+    return;
+  }
+  wrap.innerHTML = orders.slice(0, 6).map(o => `
+    <div class="notif-card">
+      <div class="notif-icon notif-ticket-icon">🎫</div>
+      <div class="notif-card-body">
+        <div class="notif-card-title">${esc(o.raffleTitle)}</div>
+        <div class="notif-card-sub">${o.quantity} ${o.quantity === 1 ? 'ticket' : 'tickets'} · ${statusLabel(o.status)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+async function renderNotifPanel(){
+  renderWinnersSection();
+  const phone = localStorage.getItem('phone') || '';
+  const customerId = localStorage.getItem('customerId') || '';
+  if (!phone || !customerId){ renderTicketsSection([]); return; }
+  try{
+    const res = await fetch(`${API}/tickets?phone=${encodeURIComponent(phone)}&customerId=${encodeURIComponent(customerId)}`);
+    const data = await res.json();
+    renderTicketsSection(res.ok ? (data.orders || []) : []);
+  }catch(e){ console.error(e); renderTicketsSection([]); }
+}
+document.getElementById('notifBtn').addEventListener('click', ()=>{
+  renderNotifPanel();
+  document.getElementById('notifModalBackdrop').classList.add('show');
+  markWinnersSeen(endedRafflesWithWinner().map(r => r.id));
+  updateNotifDot();
+});
+document.getElementById('notifModalClose').addEventListener('click', ()=>{
+  document.getElementById('notifModalBackdrop').classList.remove('show');
+});
+document.getElementById('notifModalBackdrop').addEventListener('click', (e)=>{
+  if (e.target.id === 'notifModalBackdrop') document.getElementById('notifModalBackdrop').classList.remove('show');
 });
 
 let isLight = false;
@@ -187,6 +278,7 @@ async function loadRaffles(){
     const data = await res.json();
     raffles = data.raffles || [];
     renderHomeList();
+    updateNotifDot();
   }catch(e){
     console.error(e);
     showToast('Could not load raffles');
