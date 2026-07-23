@@ -214,4 +214,4 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 24 * 60 * 60
   return user;
 }
 
-module.exports = { getAvailability, numberStatus, publicRaffle, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData };
+module.exports = { getAvailability, numberStatus, publicRaffle, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData, maskWinnerName };
