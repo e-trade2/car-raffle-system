@@ -729,12 +729,16 @@ function renderTickets(orders, counts){
       ${needsPayment ? `<div style="font-size:11.5px;color:var(--accent-gold);margin-top:6px;">Reserved until ${new Date(o.reservedUntil).toLocaleTimeString()} - upload your payment receipt before then or these numbers will be released.</div>` : ''}
       <div class="ticket-nums" id="ticket-nums-${o.id}">${o.ticketNumbers.map(n=>`<span class="chip-num${released ? ' chip-num-released' : ''}">#${n}</span>`).join('')}</div>
       ${needsPayment ? `<button class="btn btn-gold" style="margin-top:12px;margin-bottom:0;" data-resumepay="${esc(o.id)}">Continue Payment →</button>` : ''}
+      ${o.status === 'expired' ? `<button class="btn" style="margin-top:12px;margin-bottom:0;background:transparent;border:1px solid var(--accent-red);color:var(--accent-red);" data-deleteorder="${esc(o.id)}">Remove from my list</button>` : ''}
     </div>
   `;
   }).join('');
 
   list.querySelectorAll('[data-resumepay]').forEach(btn=>{
     btn.addEventListener('click', ()=> resumePayment(btn.dataset.resumepay));
+  });
+  list.querySelectorAll('[data-deleteorder]').forEach(btn=>{
+    btn.addEventListener('click', ()=> deleteMyOrder(btn.dataset.deleteorder));
   });
 
   // Kick off live-status lookups only for released orders, then patch the
@@ -749,6 +753,26 @@ function renderTickets(orders, counts){
       return `<span class="chip-num chip-num-released chip-live-${live}">#${n} <em>${label}</em></span>`;
     }).join('');
   });
+}
+
+// Lets a buyer clear an expired order off their own "My Tickets" list.
+// Only expired orders are eligible - enforced server-side too, this is
+// just the matching client-side action for it.
+async function deleteMyOrder(orderId){
+  const phone = localStorage.getItem('phone') || '';
+  const customerId = localStorage.getItem('customerId') || '';
+  if (!phone || !customerId){ showToast('Enter your phone and customer ID first'); return; }
+  if (!confirm('Remove this expired order from your list? This cannot be undone.')) return;
+  try{
+    const res = await fetch(`${API}/orders/${orderId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, customerId })
+    });
+    const data = await res.json();
+    if (!res.ok){ showToast(data.error || 'Could not remove order'); return; }
+    searchTickets(phone, customerId);
+  }catch(e){ console.error(e); showToast('Could not remove order'); }
 }
 
 // Lets a customer who left mid-checkout (order created + numbers reserved,
