@@ -121,11 +121,21 @@ function defaultData() {
     // Winner records that survive their raffle being deleted. A raffle's
     // `winner` field normally lives on the raffle itself, but deleting the
     // raffle (server/routes/admin.js DELETE /raffles/:id) removes that
-    // object entirely - without this, a buyer-facing "Latest Winners"
-    // announcement would silently vanish the moment the admin cleaned up
-    // an old raffle. Entries here are copied over at delete-time and stay
-    // visible until an admin explicitly removes them (DELETE /winners/:id).
-    archivedWinners: []
+    // object entirely. This is kept only as historical/back-compat storage
+    // - the buyer-facing feed no longer reads from it. See `notifications`
+    // below for what buyers actually see now.
+    archivedWinners: [],
+    // Everything a buyer sees in the notification panel comes from here,
+    // and only from here. Drawing or manually setting a raffle's winner
+    // (POST /raffles/:id/draw, POST /raffles/:id/winner) intentionally does
+    // NOT write here automatically - that used to auto-broadcast the
+    // second a winner was picked, with no chance for the admin to review
+    // the wording or decide whether to announce it at all. Now an admin
+    // has to explicitly write and post an entry (POST /notifications)
+    // before buyers see anything, whether it's a winner announcement or
+    // any other update ("system maintenance tonight", etc). Each entry:
+    // { id, type: 'winner'|'system', title, message, ticketNumber, createdAt }.
+    notifications: []
   };
 }
 
@@ -142,6 +152,7 @@ function load() {
   if (!Array.isArray(data.customers)) data.customers = [];
   if (!Array.isArray(data.telegramUsers)) data.telegramUsers = [];
   if (!Array.isArray(data.archivedWinners)) data.archivedWinners = [];
+  if (!Array.isArray(data.notifications)) data.notifications = [];
   for (const admin of data.admins || []) {
     if (admin.email === undefined) admin.email = null;
     if (admin.resetTokenHash === undefined) admin.resetTokenHash = null;
