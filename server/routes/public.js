@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData } = require('../utils');
+const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData, maskWinnerName } = require('../utils');
 const { reportLockout } = require('../alerts');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
@@ -136,6 +136,38 @@ router.get('/raffles', (req, res) => {
   data = db.sweepExpired(data);
   const list = data.raffles.map(publicRaffle);
   res.json({ raffles: list });
+});
+
+// ---- Winner announcements (for the buyer-facing notification panel) ----
+// Merges two sources: raffles that are still around (status 'ended' with a
+// winner) and archivedWinners - winners whose raffle was later deleted by
+// the admin (see DELETE /admin/raffles/:id). Without the archive half, a
+// winner announcement would disappear the instant the admin cleaned up an
+// old raffle, which isn't what buyers expect from a winner list. Names are
+// masked the same way publicRaffle() masks them - this is public data.
+router.get('/winners', (req, res) => {
+  const data = db.load();
+  const fromRaffles = data.raffles
+    .filter(r => r.status === 'ended' && r.winner)
+    .map(r => ({
+      id: r.id,
+      raffleTitle: r.title,
+      imageUrl: r.imageUrl,
+      number: r.winner.number,
+      name: maskWinnerName(r.winner.fullName),
+      drawnAt: r.winner.drawnAt
+    }));
+  const fromArchived = (data.archivedWinners || []).map(w => ({
+    id: w.id,
+    raffleTitle: w.raffleTitle,
+    imageUrl: w.imageUrl,
+    number: w.number,
+    name: maskWinnerName(w.fullName),
+    drawnAt: w.drawnAt
+  }));
+  const winners = [...fromRaffles, ...fromArchived]
+    .sort((a, b) => new Date(b.drawnAt) - new Date(a.drawnAt));
+  res.json({ winners });
 });
 
 // ---- Raffle detail ----
