@@ -79,7 +79,7 @@ function initDashboard(){
   loadOrders();
   loadRaffles();
   loadBanks();
-  loadArchivedWinners();
+  loadNotifs();
 }
 
 // ===== Summary =====
@@ -188,9 +188,11 @@ function toLocalInputValue(isoString){
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+let cachedRaffles = [];
 async function loadRaffles(){
   try{
     const data = await api('/raffles');
+    cachedRaffles = data.raffles || [];
     const wrap = document.getElementById('rafflesList');
     if (!data.raffles.length){ wrap.innerHTML = '<div class="empty-msg">No raffles yet</div>'; return; }
     wrap.innerHTML = data.raffles.map(r=> `
@@ -292,8 +294,9 @@ async function loadRaffles(){
     wrap.querySelectorAll('[data-draw]').forEach(b=> b.addEventListener('click', async ()=>{
       try{
         const res = await api(`/raffles/${b.dataset.draw}/draw`, { method:'POST' });
-        alert(`Winner: ticket #${res.winner.number} — ${res.winner.fullName} (${res.winner.phone})`);
+        alert(`Winner: ticket #${res.winner.number} — ${res.winner.fullName} (${res.winner.phone})\n\nThis was NOT posted to buyers. Use "Post Notification" below if you'd like to announce it.`);
         loadRaffles();
+        offerToPostWinnerNotification(b.dataset.draw, res.winner);
       }catch(e){ alert(e.message); }
     }));
     wrap.querySelectorAll('[data-winnerform-toggle]').forEach(b=> b.addEventListener('click', ()=>{
@@ -314,6 +317,7 @@ async function loadRaffles(){
       try{
         await api(`/raffles/${id}/winner`, { method:'POST', body: JSON.stringify({ number, fullName, phone }) });
         loadRaffles();
+        offerToPostWinnerNotification(id, { number, fullName, phone });
       }catch(e){ alert(e.message); }
       finally{ b.disabled = false; }
     }));
@@ -353,6 +357,24 @@ async function loadRaffles(){
       finally{ inp.value = ''; }
     }));
   }catch(e){ console.error(e); }
+}
+
+// Called after a draw or manual winner-set. Deliberately asks first and
+// lets the admin edit the wording (via prompt) rather than posting
+// anything automatically - see the note in db.js on `notifications`.
+function offerToPostWinnerNotification(raffleId, winner){
+  if (!confirm('Post this as a buyer notification now? (You can edit the wording first, or do this later from the Notifications tab.)')) return;
+  const raffle = cachedRaffles.find(r => r.id === raffleId);
+  const raffleTitle = raffle ? raffle.title : 'the raffle';
+  const defaultTitle = `${winner.fullName} won ${raffleTitle}!`;
+  const defaultMessage = `Congratulations to ${winner.fullName}, winner of ticket #${winner.number} in the ${raffleTitle} raffle!`;
+  const title = prompt('Notification title:', defaultTitle);
+  if (title === null) return;
+  const message = prompt('Notification message:', defaultMessage);
+  if (message === null) return;
+  if (!title.trim() || !message.trim()){ alert('Title and message are required - not posted.'); return; }
+  postNotification({ type: 'winner', title: title.trim(), message: message.trim(), ticketNumber: winner.number })
+    .catch(e => alert(e.message));
 }
 
 document.getElementById('newImageFile').addEventListener('change', (e)=>{
@@ -413,33 +435,54 @@ async function loadBanks(){
   }catch(e){ console.error(e); }
 }
 
-// Winners left behind after their raffle was deleted - see archivedWinners
-// in db.js. These keep showing in the buyer app's notification panel until
-// removed here.
-async function loadArchivedWinners(){
+// Buyer-facing notifications - entirely admin-authored. Drawing/setting a
+// raffle winner (below) intentionally doesn't create one of these
+// automatically; this list is the only thing that reaches the buyer app.
+async function loadNotifs(){
   try{
-    const data = await api('/winners');
-    const wrap = document.getElementById('archivedWinnersList');
-    if (!data.winners.length){ wrap.innerHTML = '<div class="empty-msg">No archived winners</div>'; return; }
-    wrap.innerHTML = data.winners.map(w=> `
+    const data = await api('/notifications');
+    const wrap = document.getElementById('notifsList');
+    if (!data.notifications.length){ wrap.innerHTML = '<div class="empty-msg">No notifications posted yet</div>'; return; }
+    wrap.innerHTML = data.notifications.map(n=> `
       <div class="raffle-item">
         <div>
-          <div style="font-weight:700;">🏆 ${esc(w.fullName)} <span style="color:var(--text-tertiary);font-weight:400;">— ticket #${esc(w.number)}</span></div>
-          <div style="font-size:12px;color:var(--text-tertiary);">${esc(w.raffleTitle)}${w.phone ? ` · ${esc(w.phone)}` : ''} · drawn ${new Date(w.drawnAt).toLocaleString()}</div>
+          <div style="font-weight:700;">${n.type === 'winner' ? '🏆' : '🔔'} ${esc(n.title)}${n.ticketNumber ? ` <span style="color:var(--text-tertiary);font-weight:400;">— ticket #${esc(n.ticketNumber)}</span>` : ''}</div>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">${esc(n.message)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Posted ${new Date(n.createdAt).toLocaleString()}</div>
         </div>
-        <button class="btn-red" data-delwinner="${esc(w.id)}">Remove</button>
+        <button class="btn-red" data-delnotif="${esc(n.id)}">Remove</button>
       </div>
     `).join('');
-    wrap.querySelectorAll('[data-delwinner]').forEach(btn=> btn.addEventListener('click', async ()=>{
-      if (!confirm('Remove this winner announcement? It will disappear from the buyer app right away.')) return;
+    wrap.querySelectorAll('[data-delnotif]').forEach(btn=> btn.addEventListener('click', async ()=>{
+      if (!confirm('Remove this notification? It will disappear from the buyer app right away.')) return;
       btn.disabled = true;
       try{
-        await api(`/winners/${btn.dataset.delwinner}`, { method:'DELETE' });
-        loadArchivedWinners();
+        await api(`/notifications/${btn.dataset.delnotif}`, { method:'DELETE' });
+        loadNotifs();
       }catch(e){ alert(e.message); btn.disabled = false; }
     }));
   }catch(e){ console.error(e); }
 }
+async function postNotification({ type, title, message, ticketNumber }){
+  await api('/notifications', { method:'POST', body: JSON.stringify({ type, title, message, ticketNumber }) });
+  loadNotifs();
+}
+document.getElementById('postNotifBtn').addEventListener('click', async ()=>{
+  const type = document.getElementById('newNotifType').value;
+  const ticketNumber = document.getElementById('newNotifTicket').value.trim();
+  const title = document.getElementById('newNotifTitle').value.trim();
+  const message = document.getElementById('newNotifMessage').value.trim();
+  if (!title || !message){ alert('Title and message are required'); return; }
+  const btn = document.getElementById('postNotifBtn');
+  btn.disabled = true;
+  try{
+    await postNotification({ type, title, message, ticketNumber });
+    document.getElementById('newNotifTicket').value = '';
+    document.getElementById('newNotifTitle').value = '';
+    document.getElementById('newNotifMessage').value = '';
+  }catch(e){ alert(e.message); }
+  finally{ btn.disabled = false; }
+});
 document.getElementById('addBankBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('newBankName').value.trim();
   const holder = document.getElementById('newBankHolder').value.trim();
