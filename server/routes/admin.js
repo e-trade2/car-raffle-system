@@ -501,25 +501,6 @@ router.delete('/raffles/:id', (req, res) => {
   const data = db.load();
   const idx = data.raffles.findIndex(r => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Raffle not found' });
-  const raffle = data.raffles[idx];
-
-  // Preserve the winner announcement independently of the raffle it came
-  // from - see archivedWinners in db.js. Without this, deleting an ended
-  // raffle would silently pull its winner out of the buyer-facing
-  // notification panel along with it.
-  if (raffle.winner) {
-    data.archivedWinners = data.archivedWinners || [];
-    data.archivedWinners.push({
-      id: nanoid(8),
-      raffleTitle: raffle.title,
-      imageUrl: raffle.imageUrl,
-      number: raffle.winner.number,
-      fullName: raffle.winner.fullName,
-      phone: raffle.winner.phone,
-      drawnAt: raffle.winner.drawnAt,
-      archivedAt: new Date().toISOString()
-    });
-  }
 
   data.raffles.splice(idx, 1);
 
@@ -747,23 +728,43 @@ router.delete('/raffles/:id/winner', (req, res) => {
   res.json({ ok: true });
 });
 
-// ---- Archived winners (from deleted raffles) ----
-// Raw (unmasked) data for the admin to review/manage - the public-facing
-// version of this list is GET /api/winners in routes/public.js, which
-// masks the name.
-router.get('/winners', (req, res) => {
+// ---- Buyer-facing notifications ----
+// This is the only thing that populates the buyer app's notification
+// panel (see GET /api/notifications in routes/public.js). Deliberately NOT
+// wired to raffle draw/winner-set/delete above - an admin has to come here
+// and explicitly write (and can edit the wording of) whatever buyers see,
+// whether that's a winner announcement or an unrelated update.
+router.get('/notifications', (req, res) => {
   const data = db.load();
-  const winners = [...(data.archivedWinners || [])].sort((a, b) => new Date(b.drawnAt) - new Date(a.drawnAt));
-  res.json({ winners });
+  const notifications = [...(data.notifications || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json({ notifications });
 });
 
-// Admin-only removal - this is the "stays until the admin wants it gone"
-// control for an archived winner announcement.
-router.delete('/winners/:id', (req, res) => {
+router.post('/notifications', (req, res) => {
+  const { type, title, message, ticketNumber } = req.body;
+  if (!title || !String(title).trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!message || !String(message).trim()) return res.status(400).json({ error: 'Message is required' });
   const data = db.load();
-  const idx = (data.archivedWinners || []).findIndex(w => w.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Archived winner not found' });
-  data.archivedWinners.splice(idx, 1);
+  data.notifications = data.notifications || [];
+  const notification = {
+    id: nanoid(8),
+    type: type === 'winner' ? 'winner' : 'system',
+    title: String(title).trim(),
+    message: String(message).trim(),
+    ticketNumber: ticketNumber ? String(ticketNumber).trim() : '',
+    createdAt: new Date().toISOString()
+  };
+  data.notifications.unshift(notification);
+  db.save(data);
+  res.status(201).json({ notification });
+});
+
+// The "stays until the admin wants it gone" control for a posted notification.
+router.delete('/notifications/:id', (req, res) => {
+  const data = db.load();
+  const idx = (data.notifications || []).findIndex(n => n.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Notification not found' });
+  data.notifications.splice(idx, 1);
   db.save(data);
   res.json({ ok: true });
 });
