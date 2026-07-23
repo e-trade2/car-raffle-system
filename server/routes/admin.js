@@ -8,6 +8,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
+const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
 
@@ -37,6 +38,32 @@ const uploadCarPhoto = multer({
     else cb(new Error('Only image files are allowed for car photos'));
   }
 });
+
+// Car photos have the same durability problem receipts had: saved to local
+// disk, which is wiped on every redeploy on hosts with an ephemeral
+// filesystem (Render free tier). Unlike receipts, these are shown directly
+// on the public storefront, so a wiped photo isn't just an admin
+// inconvenience - it's a broken image for every buyer browsing the site.
+// This bucket is PUBLIC (unlike the private receipts bucket), since car
+// photos are meant to be visible to anyone, with no auth gate needed.
+const CAR_PHOTOS_BUCKET = 'car-photos';
+let carPhotosBucketEnsured = false;
+async function ensureCarPhotosBucket() {
+  if (carPhotosBucketEnsured) return;
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.storage.createBucket(CAR_PHOTOS_BUCKET, { public: true });
+    if (error && !/already exists/i.test(error.message || '')) {
+      console.warn('⚠️  Could not create Supabase car-photos bucket:', error.message);
+    }
+  } catch (err) {
+    console.warn('⚠️  Could not create Supabase car-photos bucket:', err.message);
+  } finally {
+    carPhotosBucketEnsured = true;
+  }
+}
+ensureCarPhotosBucket();
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.adminId) return next();
@@ -350,13 +377,38 @@ router.get('/raffles', (req, res) => {
 // Kept as its own step (rather than bundled into raffle create/edit) so the
 // admin form can show a preview immediately and so raffle create/edit can
 // stay simple JSON instead of multipart.
-router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), (req, res) => {
+router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
   // Same reasoning as the receipt upload in public.js - the client-declared
   // mimetype fileFilter checked isn't proof of what was actually written to
   // disk, so confirm the real file signature before trusting it.
-  verifyUploadedImage(req.file.path, (verifyErr) => {
+  verifyUploadedImage(req.file.path, async (verifyErr) => {
     if (verifyErr) return res.status(400).json({ error: verifyErr.message });
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const objectPath = req.file.filename;
+        const { error: uploadErr } = await supabase.storage
+          .from(CAR_PHOTOS_BUCKET)
+          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
+        fs.unlink(req.file.path, () => {}); // only ever needed locally for the signature check above
+        if (uploadErr) {
+          console.warn('⚠️  Supabase car photo upload failed:', uploadErr.message);
+          return res.status(502).json({ error: 'Could not store the photo. Please try again.' });
+        }
+        const { data: pub } = supabase.storage.from(CAR_PHOTOS_BUCKET).getPublicUrl(objectPath);
+        return res.json({ imageUrl: pub.publicUrl });
+      } catch (err) {
+        fs.unlink(req.file.path, () => {});
+        console.warn('⚠️  Supabase car photo upload failed:', err.message);
+        return res.status(502).json({ error: 'Could not store the photo. Please try again.' });
+      }
+    }
+
+    // No Supabase configured (e.g. local dev) - same local-disk behavior as
+    // before. On Render free tier this won't survive a redeploy.
     const imageUrl = `/uploads/cars/${req.file.filename}`;
     res.json({ imageUrl });
   });
