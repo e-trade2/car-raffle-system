@@ -149,7 +149,7 @@ document.addEventListener('click', (e)=>{
 });
 
 // ===================== NOTIFICATIONS =====================
-// "Seen" winners are tracked client-side only (by raffle id) so the red
+// "Seen" winners are tracked client-side only (by winner id) so the red
 // dot clears once the buyer has actually opened the panel, without
 // needing a server-side read-receipt for something this low-stakes.
 function getSeenWinnerIds(){
@@ -158,31 +158,36 @@ function getSeenWinnerIds(){
 function markWinnersSeen(ids){
   localStorage.setItem('seenWinnerRaffleIds', JSON.stringify(ids));
 }
-function endedRafflesWithWinner(){
-  return (raffles || [])
-    .filter(r => r.status === 'ended' && r.winner)
-    .sort((a,b) => new Date(b.winner.drawnAt) - new Date(a.winner.drawnAt));
+// Cache of the last /winners fetch, so the dot can be recomputed (e.g.
+// after a language change) without re-hitting the network every time.
+let latestWinners = [];
+async function loadWinners(){
+  try{
+    const res = await fetch(`${API}/winners`);
+    const data = await res.json();
+    latestWinners = res.ok ? (data.winners || []) : [];
+  }catch(e){ console.error(e); latestWinners = []; }
+  updateNotifDot();
 }
 function updateNotifDot(){
   const seen = getSeenWinnerIds();
-  const hasUnseen = endedRafflesWithWinner().some(r => !seen.includes(r.id));
+  const hasUnseen = latestWinners.some(w => !seen.includes(w.id));
   document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
 }
 function renderWinnersSection(){
   const wrap = document.getElementById('notifWinnersList');
-  const winners = endedRafflesWithWinner();
-  if (!winners.length){
+  if (!latestWinners.length){
     wrap.innerHTML = `<div class="notif-empty-box">${t('noWinnersLbl')}</div>`;
     return;
   }
-  wrap.innerHTML = winners.slice(0, 8).map(r => `
+  wrap.innerHTML = latestWinners.slice(0, 8).map(w => `
     <div class="notif-card">
       <div class="notif-icon notif-winner-icon">🏆</div>
       <div class="notif-card-body">
-        <div class="notif-card-title">${esc(r.winner.name)} ${t('wonLbl')} ${esc(r.title)}</div>
-        <div class="notif-card-sub">${new Date(r.winner.drawnAt).toLocaleDateString()}</div>
+        <div class="notif-card-title">${esc(w.name)} ${t('wonLbl')} ${esc(w.raffleTitle)}</div>
+        <div class="notif-card-sub">${new Date(w.drawnAt).toLocaleDateString()}</div>
       </div>
-      <div class="notif-card-badge">#${r.winner.number}</div>
+      <div class="notif-card-badge">#${esc(w.number)}</div>
     </div>
   `).join('');
 }
@@ -203,6 +208,7 @@ function renderTicketsSection(orders){
   `).join('');
 }
 async function renderNotifPanel(){
+  await loadWinners();
   renderWinnersSection();
   const phone = localStorage.getItem('phone') || '';
   const customerId = localStorage.getItem('customerId') || '';
@@ -213,10 +219,10 @@ async function renderNotifPanel(){
     renderTicketsSection(res.ok ? (data.orders || []) : []);
   }catch(e){ console.error(e); renderTicketsSection([]); }
 }
-document.getElementById('notifBtn').addEventListener('click', ()=>{
-  renderNotifPanel();
+document.getElementById('notifBtn').addEventListener('click', async ()=>{
+  await renderNotifPanel();
   document.getElementById('notifModalBackdrop').classList.add('show');
-  markWinnersSeen(endedRafflesWithWinner().map(r => r.id));
+  markWinnersSeen(latestWinners.map(w => w.id));
   updateNotifDot();
 });
 document.getElementById('notifModalClose').addEventListener('click', ()=>{
@@ -225,6 +231,7 @@ document.getElementById('notifModalClose').addEventListener('click', ()=>{
 document.getElementById('notifModalBackdrop').addEventListener('click', (e)=>{
   if (e.target.id === 'notifModalBackdrop') document.getElementById('notifModalBackdrop').classList.remove('show');
 });
+loadWinners();
 
 let isLight = false;
 document.getElementById('themeBtn').addEventListener('click', ()=>{
