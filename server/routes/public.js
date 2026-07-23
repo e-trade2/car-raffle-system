@@ -429,6 +429,47 @@ router.get('/tickets', (req, res) => {
   res.json({ orders, counts: { active, pending, total: orders.length } });
 });
 
+// ---- Buyer deletes their own expired order ----
+// Deliberately narrow, mirroring the admin-side delete rule: only 'expired'
+// orders qualify. An expired order already has no money and no held
+// number attached (sweepExpired already released it back to the pool), so
+// there's nothing for a buyer to lose by clearing it from their own list -
+// unlike a pending/awaiting_payment/confirmed order, which still
+// represents something real that only the admin should be able to unwind.
+router.delete('/orders/:id', (req, res) => {
+  if (isTicketsLookupRateLimited(req.ip)) {
+    reportLockout(`tickets-lookup-ip:${req.ip}`, `IP ${req.ip} exceeded ${TICKETS_LOOKUP_MAX_ATTEMPTS} ticket-lookup attempts in ${TICKETS_LOOKUP_WINDOW_MS / 60000} minutes - possible phone-number enumeration.`);
+    return res.status(429).json({ error: 'Too many attempts from this network. Please wait a bit and try again.' });
+  }
+  const phone = (req.body.phone || '').trim();
+  const customerId = (req.body.customerId || '').trim().toUpperCase();
+  if (!phone) return res.status(400).json({ error: 'phone is required' });
+  if (!customerId) return res.status(400).json({ error: 'customerId is required' });
+  if (isTicketsLookupPhoneRateLimited(phone)) {
+    reportLockout(`tickets-lookup-phone:${phone}`, `Phone number ${phone} was looked up more than ${TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS} times in ${TICKETS_LOOKUP_PHONE_WINDOW_MS / 60000} minutes, possibly from multiple IPs - possible targeted scraping of one buyer's data.`);
+    return res.status(429).json({ error: 'Too many attempts for this number. Please wait a bit and try again.' });
+  }
+
+  let data = db.load();
+  data = db.sweepExpired(data);
+
+  const customer = data.customers.find(c => c.phone === phone);
+  if (!customer || customer.id !== customerId) {
+    reportLockout(`tickets-lookup-badid:${phone}`, `Order delete for phone ${phone} was attempted with a wrong/missing customer id from IP ${req.ip} - possible attempt to modify another buyer's data.`);
+    return res.status(403).json({ error: 'Phone number and customer ID do not match.' });
+  }
+
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order || order.phone !== phone) return res.status(404).json({ error: 'Order not found' });
+  if (order.status !== 'expired') {
+    return res.status(400).json({ error: 'Only expired orders can be deleted.' });
+  }
+
+  data.orders = data.orders.filter(o => o.id !== order.id);
+  db.save(data);
+  res.json({ ok: true });
+});
+
 // ---- Telegram bot <-> mini app bridge ----
 //
 // POST /telegram/link is called by the bot's own server, right after a
