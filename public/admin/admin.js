@@ -209,7 +209,23 @@ async function loadRaffles(){
           <button class="btn-outline" data-editbtn="${r.id}">Edit</button>
           ${r.status==='active' ? `<button class="btn-outline" data-end="${r.id}">End</button>` : `<button class="btn-outline" data-activate="${r.id}">Activate</button>`}
           <button class="btn-green" data-draw="${r.id}">Draw Winner</button>
+          <button class="btn-outline" data-winnerform-toggle="${r.id}">${r.winner ? 'Edit Winner' : 'Set Winner Manually'}</button>
+          ${r.winner ? `<button class="btn-red" data-clearwinner="${r.id}">Clear Winner</button>` : ''}
           <button class="btn-red" data-delete="${r.id}">Delete</button>
+        </div>
+        ${r.winner ? `
+        <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px;">
+          🏆 Winner: <strong style="color:var(--text-primary);">${esc(r.winner.fullName)}</strong> — ticket #${esc(r.winner.number)}${r.winner.phone ? ` · ${esc(r.winner.phone)}` : ''} <span style="opacity:.7;">(${new Date(r.winner.drawnAt).toLocaleString()})</span>
+        </div>` : ''}
+        <div class="raffle-edit-form" data-winnerform="${r.id}" style="display:none;">
+          <div class="grid2">
+            <div><label>Winner Ticket Number</label><input type="text" data-winner-number="${r.id}" value="${r.winner ? esc(r.winner.number) : ''}" placeholder="e.g. 452"></div>
+            <div><label>Winner Full Name</label><input type="text" data-winner-name="${r.id}" value="${r.winner ? esc(r.winner.fullName) : ''}" placeholder="e.g. Abebe Kebede"></div>
+            <div><label>Winner Phone (optional)</label><input type="text" data-winner-phone="${r.id}" value="${r.winner && r.winner.phone ? esc(r.winner.phone) : ''}" placeholder="e.g. 0911223344"></div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);margin:6px 0 10px;">This is entered freely by you and is not checked against real orders — use it to correct a draw or record an off-platform result.</div>
+          <button class="btn-green" data-winnersave="${r.id}">Save Winner</button>
+          <button class="btn-outline" data-winnercancel="${r.id}">Cancel</button>
         </div>
         <div class="raffle-edit-form" data-editform="${r.id}" style="display:none;">
           <div class="grid2">
@@ -278,6 +294,35 @@ async function loadRaffles(){
         alert(`Winner: ticket #${res.winner.number} — ${res.winner.fullName} (${res.winner.phone})`);
         loadRaffles();
       }catch(e){ alert(e.message); }
+    }));
+    wrap.querySelectorAll('[data-winnerform-toggle]').forEach(b=> b.addEventListener('click', ()=>{
+      const id = b.dataset.winnerformToggle;
+      const form = wrap.querySelector(`[data-winnerform="${id}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }));
+    wrap.querySelectorAll('[data-winnercancel]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-winnerform="${b.dataset.winnercancel}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-winnersave]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.winnersave;
+      const number = wrap.querySelector(`[data-winner-number="${id}"]`).value.trim();
+      const fullName = wrap.querySelector(`[data-winner-name="${id}"]`).value.trim();
+      const phone = wrap.querySelector(`[data-winner-phone="${id}"]`).value.trim();
+      if (!number || !fullName){ alert('Ticket number and winner name are required'); return; }
+      b.disabled = true;
+      try{
+        await api(`/raffles/${id}/winner`, { method:'POST', body: JSON.stringify({ number, fullName, phone }) });
+        loadRaffles();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-clearwinner]').forEach(b=> b.addEventListener('click', async ()=>{
+      if (!confirm('Clear this raffle\'s winner? This also reopens the raffle as active.')) return;
+      b.disabled = true;
+      try{
+        await api(`/raffles/${b.dataset.clearwinner}/winner`, { method:'DELETE' });
+        loadRaffles();
+      }catch(e){ alert(e.message); b.disabled = false; }
     }));
     wrap.querySelectorAll('[data-updatedate]').forEach(b=> b.addEventListener('click', async ()=>{
       const id = b.dataset.updatedate;
