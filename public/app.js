@@ -39,7 +39,7 @@ const TEXT = {
     backLabel:"Back", cdLabel:"Time Remaining",
     cdDaysLbl:"Days", cdHoursLbl:"Hrs", cdMinsLbl:"Min", cdSecsLbl:"Sec",
     soldLbl:"sold", filledLbl:"filled", remainLbl:"tickets remaining",
-    participantsLbl:"Participants", buyTicket:"Buy Ticket",
+    participantsLbl:"Participants", buyTicket:"4 Buy Ticket",
     priceLbl:"Ticket Price", pickLabel:"Select your lucky numbers",
     buyLabel:"Buy Now (random)", selectedNumsLbl:"Selected numbers:",
     navHome:"Home", navTickets:"Tickets", navProfile:"Profile",
