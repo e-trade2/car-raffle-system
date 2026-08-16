@@ -138,25 +138,6 @@ router.get('/raffles', (req, res) => {
   res.json({ raffles: list });
 });
 
-// ---- Winner announcements (for the buyer-facing notification panel) ----
-// Merges two sources: raffles that are still around (status 'ended' with a
-// winner) and archivedWinners - winners whose raffle was later deleted by
-// the admin (see DELETE /admin/raffles/:id). Without the archive half, a
-// winner announcement would disappear the instant the admin cleaned up an
-// old raffle, which isn't what buyers expect from a winner list. Names are
-// masked the same way publicRaffle() masks them - this is public data.
-// ---- Buyer notification feed ----
-// Entirely admin-authored (see POST /api/admin/notifications) - drawing or
-// setting a raffle winner does NOT land here automatically, so nothing
-// reaches a buyer's device until an admin has explicitly written and
-// posted it. No masking needed since the admin controls the wording
-// themselves, unlike the old auto-generated version of this endpoint.
-router.get('/notifications', (req, res) => {
-  const data = db.load();
-  const notifications = [...(data.notifications || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ notifications });
-});
-
 // ---- Raffle detail ----
 router.get('/raffles/:id', (req, res) => {
   let data = db.load();
@@ -522,12 +503,18 @@ router.post('/telegram/link', (req, res) => {
     reportLockout(`telegram-link-badkey:${req.ip}`, `IP ${req.ip} called POST /telegram/link with a missing/wrong internal key - possible attempt to plant a fake phone/telegramId pairing.`);
     return res.status(403).json({ error: 'Forbidden' });
   }
-  const { telegramId, phone, fullName } = req.body || {};
+  const { telegramId, phone, fullName, username } = req.body || {};
   if (!telegramId || !phone) {
     return res.status(400).json({ error: 'telegramId and phone are required' });
   }
   const data = db.load();
-  const user = db.upsertTelegramUser(data, telegramId, String(phone).trim(), String(fullName || '').trim());
+  const user = db.upsertTelegramUser(
+    data,
+    telegramId,
+    String(phone).trim(),
+    String(fullName || '').trim(),
+    username ? String(username).trim() : ''
+  );
   db.save(data);
   res.json({ ok: true, telegramId: user.telegramId });
 });
