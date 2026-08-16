@@ -39,67 +39,70 @@ const TEXT = {
     backLabel:"Back", cdLabel:"Time Remaining",
     cdDaysLbl:"Days", cdHoursLbl:"Hrs", cdMinsLbl:"Min", cdSecsLbl:"Sec",
     soldLbl:"sold", filledLbl:"filled", remainLbl:"tickets remaining",
-    participantsLbl:"Participants", buyTicket:"4 Buy Ticket",
-    priceLbl:"Ticket Price", pickLabel:"5 Select your lucky numbers",
+    participantsLbl:"Participants", buyTicket:"Buy Ticket",
+    priceLbl:"Ticket Price", pickLabel:"Select your lucky numbers",
     buyLabel:"Buy Now (random)", selectedNumsLbl:"Selected numbers:",
     navHome:"Home", navTickets:"Tickets", navProfile:"Profile",
     myTicketsTitle:"My Tickets",
     toastSoon:"Coming soon", toastPicked:"numbers selected",
-    confirmSelection:"6 Confirm Selection",
+    confirmSelection:"Confirm Selection",
     orderConfirmTitle:"Confirm your order", orderPaymentTitle:"Payment",
     orderStatusTitle:"Order submitted",
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
-    continueLbl:"7 Continue", submitPaymentLbl:"8 Submit Payment",
+    continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
     ticketNo:"Ticket #", banksLbl:"Select bank to view account (optional)",
-    notifTitle:"Notifications", latestWinnersLbl:"Announcements", myTicketsLblNotif:"My Tickets",
-    noWinnersLbl:"No announcements yet", noTicketsLbl:"No tickets found",
+    notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
+    noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
     wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
+    legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendReservedLbl:"Reserved", legendFreeLbl:"Free",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
     cdDaysLbl:"ቀናት", cdHoursLbl:"ሰዓት", cdMinsLbl:"ደቂቃ", cdSecsLbl:"ሰከንድ",
     soldLbl:"ተሸጠዋል", filledLbl:"ተሞልቷል", remainLbl:"ትኬት ቀርቷል",
-    participantsLbl:"ተሳታፊዎች", buyTicket:"4 ትኬት ይግዙ",
-    priceLbl:"የትኬት ዋጋ", pickLabel:"5 የዕድል ቁጥሮችዎን ይምረጡ",
+    participantsLbl:"ተሳታፊዎች", buyTicket:"ትኬት ይግዙ",
+    priceLbl:"የትኬት ዋጋ", pickLabel:"የዕድል ቁጥሮችዎን ይምረጡ",
     buyLabel:"አሁኑኑ ይግዙ (በዘፈቀደ)", selectedNumsLbl:"የመረጡት ቁጥሮች፡",
     navHome:"መነሻ", navTickets:"ትኬቶች", navProfile:"መገለጫ",
     myTicketsTitle:"የኔ ትኬቶች",
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
-    confirmSelection:"6 ምርጫ አረጋግጥ",
+    confirmSelection:"ምርጫ አረጋግጥ",
     orderConfirmTitle:"ትዕዛዝዎን ያረጋግጡ", orderPaymentTitle:"ክፍያ",
     orderStatusTitle:"ትዕዛዝ ገብቷል",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
-    continueLbl:"7 ቀጥል", submitPaymentLbl:"8 ክፍያ አስገባ",
+    continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ደረሰኝዎን ለመስቀል ይንኩ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
     ticketNo:"ትኬት ቁ.", banksLbl:"የባንክ ሂሳብ ለማየት ይምረጡ (አማራጭ)",
-    notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"ማስታወቂያዎች", myTicketsLblNotif:"የኔ ትኬቶች",
-    noWinnersLbl:"እስካሁን ምንም ማስታወቂያ የለም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
+    notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
+    noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
     wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
+    legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendReservedLbl:"የተጠበቀ", legendFreeLbl:"ክፍት",
   },
   om: {
     backLabel:"Deebi'i", cdLabel:"Yeroo Hafe",
     cdDaysLbl:"Guyyaa", cdHoursLbl:"Sa'aa", cdMinsLbl:"Daqiiqaa", cdSecsLbl:"Sekondii",
     soldLbl:"gurgurame", filledLbl:"guutame", remainLbl:"tikeetiin hafe",
-    participantsLbl:"Hirmaattonni", buyTicket:"4 Tikeetii Bitadhu",
-    priceLbl:"Gatii Tikeetii", pickLabel:"5 Lakkoofsa carraa kee filadhu",
+    participantsLbl:"Hirmaattonni", buyTicket:"Tikeetii Bitadhu",
+    priceLbl:"Gatii Tikeetii", pickLabel:"Lakkoofsa carraa kee filadhu",
     buyLabel:"Amma Bitadhu (kan tasaa)", selectedNumsLbl:"Lakkoofsa filatte:",
     navHome:"Fuula Duraa", navTickets:"Tikeetii", navProfile:"Piroofaayilii",
     myTicketsTitle:"Tikeetii Koo",
     toastSoon:"Dhiyootti ni dhufa", toastPicked:"lakkoofsi filatame",
-    confirmSelection:"6 Filannoo Mirkaneessi",
+    confirmSelection:"Filannoo Mirkaneessi",
     orderConfirmTitle:"Ajaja kee mirkaneessi", orderPaymentTitle:"Kaffaltii",
     orderStatusTitle:"Ajajni ergameera",
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
-    continueLbl:"7 Itti Fufi", submitPaymentLbl:"8 Kaffaltii Ergi",
+    continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Ragaa kaffaltii keessan fe'uuf tuqaa",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
     ticketNo:"Lakk. Tikeetii", banksLbl:"Herrega baankii ilaaluuf filadhu (filannoo)",
-    notifTitle:"Beeksisoota", latestWinnersLbl:"Beeksisoota", myTicketsLblNotif:"Tikeetii Koo",
-    noWinnersLbl:"Hanga ammaatti beeksisni hin jiru", noTicketsLbl:"Tikeetiin hin argamne",
+    notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
+    noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
     wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
+    legendSelectedLbl:"Filatame", legendTakenLbl:"Qabame", legendReservedLbl:"Eegame", legendFreeLbl:"Banaa",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -149,77 +152,42 @@ document.addEventListener('click', (e)=>{
 });
 
 // ===================== NOTIFICATIONS =====================
-// Everything here comes from the admin-authored feed (GET /api/notifications)
-// - see server/routes/admin.js POST /notifications. Drawing/setting a
-// raffle winner does NOT feed this automatically; an admin has to
-// explicitly write and post an announcement first.
-
-// "Seen" is tracked client-side only (by notification id) so the red dot
-// clears once the buyer has actually opened the panel, without needing a
-// server-side read-receipt for something this low-stakes.
-function getSeenNotifIds(){
-  try{ return JSON.parse(localStorage.getItem('seenNotifIds') || '[]'); }catch(e){ return []; }
+// "Seen" winners are tracked client-side only (by raffle id) so the red
+// dot clears once the buyer has actually opened the panel, without
+// needing a server-side read-receipt for something this low-stakes.
+function getSeenWinnerIds(){
+  try{ return JSON.parse(localStorage.getItem('seenWinnerRaffleIds') || '[]'); }catch(e){ return []; }
 }
-function markNotifsSeen(ids){
-  localStorage.setItem('seenNotifIds', JSON.stringify(ids));
+function markWinnersSeen(ids){
+  localStorage.setItem('seenWinnerRaffleIds', JSON.stringify(ids));
 }
-// Per-buyer dismissal, separate from "seen". Dismissing hides a
-// notification from this browser only - it doesn't touch the server, so
-// it stays visible to every other buyer and in the admin's Notifications
-// tab. Different from the admin's Remove button (DELETE
-// /admin/notifications/:id), which deletes it for everyone.
-function getDismissedNotifIds(){
-  try{ return JSON.parse(localStorage.getItem('dismissedNotifIds') || '[]'); }catch(e){ return []; }
-}
-function dismissNotif(id){
-  const dismissed = getDismissedNotifIds();
-  if (!dismissed.includes(id)) dismissed.push(id);
-  localStorage.setItem('dismissedNotifIds', JSON.stringify(dismissed));
-  renderNotifsSection();
-  updateNotifDot();
-}
-// Cache of the last /notifications fetch, so the dot can be recomputed
-// (e.g. after a language change) without re-hitting the network every time.
-let latestNotifs = [];
-async function loadNotifs(){
-  try{
-    const res = await fetch(`${API}/notifications`);
-    const data = await res.json();
-    latestNotifs = res.ok ? (data.notifications || []) : [];
-  }catch(e){ console.error(e); latestNotifs = []; }
-  updateNotifDot();
-}
-function visibleNotifs(){
-  const dismissed = getDismissedNotifIds();
-  return latestNotifs.filter(n => !dismissed.includes(n.id));
+function endedRafflesWithWinner(){
+  return (raffles || [])
+    .filter(r => r.status === 'ended' && r.winner)
+    .sort((a,b) => new Date(b.winner.drawnAt) - new Date(a.winner.drawnAt));
 }
 function updateNotifDot(){
-  const seen = getSeenNotifIds();
-  const hasUnseen = visibleNotifs().some(n => !seen.includes(n.id));
+  const seen = getSeenWinnerIds();
+  const hasUnseen = endedRafflesWithWinner().some(r => !seen.includes(r.id));
   document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
 }
-function renderNotifsSection(){
+function renderWinnersSection(){
   const wrap = document.getElementById('notifWinnersList');
-  const notifs = visibleNotifs();
-  if (!notifs.length){
+  const winners = endedRafflesWithWinner();
+  if (!winners.length){
     wrap.innerHTML = `<div class="notif-empty-box">${t('noWinnersLbl')}</div>`;
     return;
   }
-  wrap.innerHTML = notifs.slice(0, 12).map(n => `
+  wrap.innerHTML = winners.slice(0, 8).map(r => `
     <div class="notif-card">
-      <div class="notif-icon ${n.type === 'winner' ? 'notif-winner-icon' : 'notif-ticket-icon'}">${n.type === 'winner' ? '🏆' : '🔔'}</div>
+      <div class="notif-icon notif-winner-icon">🏆</div>
       <div class="notif-card-body">
-        <div class="notif-card-title">${esc(n.title)}</div>
-        <div class="notif-card-sub">${esc(n.message)}</div>
-        <div class="notif-card-sub">${new Date(n.createdAt).toLocaleDateString()}</div>
+        <div class="notif-card-title">${esc(r.winner.name)} ${t('wonLbl')} ${esc(r.title)}</div>
+        <div class="notif-card-sub">${new Date(r.winner.drawnAt).toLocaleDateString()}</div>
       </div>
-      ${n.ticketNumber ? `<div class="notif-card-badge">#${esc(n.ticketNumber)}</div>` : ''}
-      <button class="notif-card-dismiss" data-dismiss-notif="${esc(n.id)}" title="Dismiss" aria-label="Dismiss">✕</button>
+      <div class="notif-card-badge">#${r.winner.number}</div>
     </div>
   `).join('');
-  wrap.querySelectorAll('[data-dismiss-notif]').forEach(btn=>{
-    btn.addEventListener('click', ()=> dismissNotif(btn.dataset.dismissNotif));
-  });
 }
 function renderTicketsSection(orders){
   const wrap = document.getElementById('notifTicketsList');
@@ -238,8 +206,7 @@ function renderTicketsSection(orders){
   `).join('');
 }
 async function renderNotifPanel(){
-  await loadNotifs();
-  renderNotifsSection();
+  renderWinnersSection();
   const phone = localStorage.getItem('phone') || '';
   const customerId = localStorage.getItem('customerId') || '';
   if (!phone || !customerId){ renderTicketsSection([]); return; }
@@ -249,10 +216,10 @@ async function renderNotifPanel(){
     renderTicketsSection(res.ok ? (data.orders || []) : []);
   }catch(e){ console.error(e); renderTicketsSection([]); }
 }
-document.getElementById('notifBtn').addEventListener('click', async ()=>{
-  await renderNotifPanel();
+document.getElementById('notifBtn').addEventListener('click', ()=>{
+  renderNotifPanel();
   document.getElementById('notifModalBackdrop').classList.add('show');
-  markNotifsSeen(latestNotifs.map(n => n.id));
+  markWinnersSeen(endedRafflesWithWinner().map(r => r.id));
   updateNotifDot();
 });
 document.getElementById('notifModalClose').addEventListener('click', ()=>{
@@ -261,7 +228,6 @@ document.getElementById('notifModalClose').addEventListener('click', ()=>{
 document.getElementById('notifModalBackdrop').addEventListener('click', (e)=>{
   if (e.target.id === 'notifModalBackdrop') document.getElementById('notifModalBackdrop').classList.remove('show');
 });
-loadNotifs();
 
 let isLight = false;
 document.getElementById('themeBtn').addEventListener('click', ()=>{
