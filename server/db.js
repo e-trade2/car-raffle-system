@@ -117,25 +117,7 @@ function defaultData() {
     banks: [
       { id: nanoid(6), name: 'Telebirr', holder: 'Getachew', account: '0924242419' },
       { id: nanoid(6), name: 'Commercial Bank of Ethiopia', holder: 'Getachew Fikadu Jirata', account: '1000528139489' }
-    ],
-    // Winner records that survive their raffle being deleted. A raffle's
-    // `winner` field normally lives on the raffle itself, but deleting the
-    // raffle (server/routes/admin.js DELETE /raffles/:id) removes that
-    // object entirely. This is kept only as historical/back-compat storage
-    // - the buyer-facing feed no longer reads from it. See `notifications`
-    // below for what buyers actually see now.
-    archivedWinners: [],
-    // Everything a buyer sees in the notification panel comes from here,
-    // and only from here. Drawing or manually setting a raffle's winner
-    // (POST /raffles/:id/draw, POST /raffles/:id/winner) intentionally does
-    // NOT write here automatically - that used to auto-broadcast the
-    // second a winner was picked, with no chance for the admin to review
-    // the wording or decide whether to announce it at all. Now an admin
-    // has to explicitly write and post an entry (POST /notifications)
-    // before buyers see anything, whether it's a winner announcement or
-    // any other update ("system maintenance tonight", etc). Each entry:
-    // { id, type: 'winner'|'system', title, message, ticketNumber, createdAt }.
-    notifications: []
+    ]
   };
 }
 
@@ -151,8 +133,6 @@ function load() {
   // no customer id and could never pass the GET /tickets check below.
   if (!Array.isArray(data.customers)) data.customers = [];
   if (!Array.isArray(data.telegramUsers)) data.telegramUsers = [];
-  if (!Array.isArray(data.archivedWinners)) data.archivedWinners = [];
-  if (!Array.isArray(data.notifications)) data.notifications = [];
   for (const admin of data.admins || []) {
     if (admin.email === undefined) admin.email = null;
     if (admin.resetTokenHash === undefined) admin.resetTokenHash = null;
@@ -192,15 +172,20 @@ function getOrCreateCustomer(data, phone) {
 // the bot) - not secret, but only the bot server should ever be able to
 // call this, since it's writing a phone number under someone's control.
 // That's enforced by the internal-key check in the route handler, not here.
-function upsertTelegramUser(data, telegramId, phone, fullName) {
+function upsertTelegramUser(data, telegramId, phone, fullName, username) {
   const id = String(telegramId);
   let user = data.telegramUsers.find(u => u.telegramId === id);
   if (user) {
     user.phone = phone;
     user.fullName = fullName;
+    // Telegram usernames are optional (not every account has one) and can
+    // change, so only overwrite when a new value is actually provided -
+    // otherwise a re-share without a username would blank out one we
+    // already had on file.
+    if (username) user.username = username;
     user.updatedAt = new Date().toISOString();
   } else {
-    user = { telegramId: id, phone, fullName, updatedAt: new Date().toISOString() };
+    user = { telegramId: id, phone, fullName, username: username || null, updatedAt: new Date().toISOString() };
     data.telegramUsers.push(user);
   }
   return user;
