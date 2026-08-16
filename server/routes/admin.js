@@ -363,18 +363,34 @@ router.get('/summary', (req, res) => {
     .reduce((sum, o) => sum + o.total, 0);
   res.json({
     raffleCount: data.raffles.length,
-    totalOrders, pendingOrders, confirmedOrders, revenue
+    totalOrders, pendingOrders, confirmedOrders, revenue,
+    // "Registered" = every distinct phone number the bot has ever recorded
+    // for a Telegram account, i.e. everyone who has shared their phone
+    // number with the bot at least once (regardless of whether they went
+    // on to place an order).
+    telegramRegisteredCount: data.telegramUsers.length
   });
+});
+
+// ---- Telegram users who shared their phone number with the bot ----
+router.get('/telegram-users', (req, res) => {
+  const data = db.load();
+  const users = [...data.telegramUsers]
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .map(u => ({
+      telegramId: u.telegramId,
+      username: u.username || null,
+      fullName: u.fullName || '',
+      phone: u.phone,
+      updatedAt: u.updatedAt
+    }));
+  res.json({ total: users.length, users });
 });
 
 // ---- Raffles CRUD ----
 router.get('/raffles', (req, res) => {
   const data = db.load();
-  // publicRaffle() masks the winner's name for the public-facing API; the
-  // admin dashboard is authenticated and is exactly where the real name/
-  // phone/ticket number needs to be visible and editable, so swap the
-  // masked winner back out for the raw one here.
-  res.json({ raffles: data.raffles.map(r => ({ ...publicRaffle(r), takenNumbers: r.takenNumbers, winner: r.winner || null })) });
+  res.json({ raffles: data.raffles.map(r => ({ ...publicRaffle(r), takenNumbers: r.takenNumbers })) });
 });
 
 // Upload a car photo -> returns { imageUrl } to plug into raffle create/edit.
@@ -501,7 +517,6 @@ router.delete('/raffles/:id', (req, res) => {
   const data = db.load();
   const idx = data.raffles.findIndex(r => r.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Raffle not found' });
-
   data.raffles.splice(idx, 1);
 
   // Cascade delete: an order for a raffle that no longer exists has nothing
@@ -691,82 +706,6 @@ router.post('/raffles/:id/draw', (req, res) => {
   raffle.status = 'ended';
   db.save(data);
   res.json({ winner: raffle.winner });
-});
-
-// ---- Manually set/overwrite a winner ----
-// Deliberately does NOT cross-check the number/name against real orders -
-// this is an admin override for cases the random draw can't handle
-// (announcing an off-platform winner, correcting a mistake, re-entering a
-// paper draw result, etc), so it takes the admin's input as given.
-router.post('/raffles/:id/winner', (req, res) => {
-  const { number, fullName, phone } = req.body;
-  if (!number || !String(number).trim()) return res.status(400).json({ error: 'Ticket number is required' });
-  if (!fullName || !String(fullName).trim()) return res.status(400).json({ error: 'Winner name is required' });
-  const data = db.load();
-  const raffle = data.raffles.find(r => r.id === req.params.id);
-  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
-  raffle.winner = {
-    number: String(number).trim(),
-    orderId: null,
-    fullName: String(fullName).trim(),
-    phone: phone ? String(phone).trim() : '',
-    drawnAt: new Date().toISOString()
-  };
-  raffle.status = 'ended';
-  db.save(data);
-  res.json({ winner: raffle.winner });
-});
-
-// ---- Clear a raffle's winner (undo a draw or manual entry) ----
-router.delete('/raffles/:id/winner', (req, res) => {
-  const data = db.load();
-  const raffle = data.raffles.find(r => r.id === req.params.id);
-  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
-  delete raffle.winner;
-  raffle.status = 'active';
-  db.save(data);
-  res.json({ ok: true });
-});
-
-// ---- Buyer-facing notifications ----
-// This is the only thing that populates the buyer app's notification
-// panel (see GET /api/notifications in routes/public.js). Deliberately NOT
-// wired to raffle draw/winner-set/delete above - an admin has to come here
-// and explicitly write (and can edit the wording of) whatever buyers see,
-// whether that's a winner announcement or an unrelated update.
-router.get('/notifications', (req, res) => {
-  const data = db.load();
-  const notifications = [...(data.notifications || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ notifications });
-});
-
-router.post('/notifications', (req, res) => {
-  const { type, title, message, ticketNumber } = req.body;
-  if (!title || !String(title).trim()) return res.status(400).json({ error: 'Title is required' });
-  if (!message || !String(message).trim()) return res.status(400).json({ error: 'Message is required' });
-  const data = db.load();
-  data.notifications = data.notifications || [];
-  const notification = {
-    id: nanoid(8),
-    type: type === 'winner' ? 'winner' : 'system',
-    title: String(title).trim(),
-    message: String(message).trim(),
-    ticketNumber: ticketNumber ? String(ticketNumber).trim() : '',
-    createdAt: new Date().toISOString()
-  };
-  data.notifications.unshift(notification);
-  db.save(data);
-  res.status(201).json({ notification });
-});
-
-// The "stays until the admin wants it gone" control for a posted notification.
-router.delete('/notifications/:id', (req, res) => {
-  const data = db.load();
-  const idx = (data.notifications || []).findIndex(n => n.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Notification not found' });
-  data.notifications.splice(idx, 1);
-  db.save(data);
-  res.json({ ok: true });
 });
 
 module.exports = router;
