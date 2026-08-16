@@ -79,7 +79,7 @@ function initDashboard(){
   loadOrders();
   loadRaffles();
   loadBanks();
-  loadNotifs();
+  loadTelegramUsers();
 }
 
 // ===== Summary =====
@@ -91,8 +91,36 @@ async function loadSummary(){
       <div class="stat-card"><div class="num">${s.pendingOrders}</div><div class="lbl">Pending Review</div></div>
       <div class="stat-card"><div class="num">${s.confirmedOrders}</div><div class="lbl">Confirmed Orders</div></div>
       <div class="stat-card"><div class="num">${s.revenue.toLocaleString()}</div><div class="lbl">Revenue (Birr)</div></div>
+      <div class="stat-card"><div class="num">${s.telegramRegisteredCount}</div><div class="lbl">Registered (Shared Phone)</div></div>
     `;
   }catch(e){ console.error(e); }
+}
+
+// ===== Telegram Users (shared phone with the bot) =====
+async function loadTelegramUsers(){
+  try{
+    const data = await api('/telegram-users');
+    const badge = document.getElementById('telegramTotalBadge');
+    if (badge) badge.textContent = `(${data.total} total)`;
+    renderTelegramUsers(data.users);
+  }catch(e){ console.error(e); }
+}
+
+function renderTelegramUsers(users){
+  const body = document.getElementById('telegramUsersBody');
+  const empty = document.getElementById('telegramUsersEmpty');
+  if (!body) return;
+  if (!users.length){ body.innerHTML=''; if (empty) empty.style.display='block'; return; }
+  if (empty) empty.style.display = 'none';
+  body.innerHTML = users.map(u => `
+    <tr>
+      <td>${u.username ? '@'+esc(u.username) : '<span style="color:var(--text-secondary);">—</span>'}</td>
+      <td>${esc(u.fullName) || '<span style="color:var(--text-secondary);">—</span>'}</td>
+      <td>${esc(u.phone)}</td>
+      <td>${esc(u.telegramId)}</td>
+      <td>${new Date(u.updatedAt).toLocaleString()}</td>
+    </tr>
+  `).join('');
 }
 
 // ===== Orders =====
@@ -188,11 +216,9 @@ function toLocalInputValue(isoString){
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-let cachedRaffles = [];
 async function loadRaffles(){
   try{
     const data = await api('/raffles');
-    cachedRaffles = data.raffles || [];
     const wrap = document.getElementById('rafflesList');
     if (!data.raffles.length){ wrap.innerHTML = '<div class="empty-msg">No raffles yet</div>'; return; }
     wrap.innerHTML = data.raffles.map(r=> `
@@ -212,23 +238,7 @@ async function loadRaffles(){
           <button class="btn-outline" data-editbtn="${r.id}">Edit</button>
           ${r.status==='active' ? `<button class="btn-outline" data-end="${r.id}">End</button>` : `<button class="btn-outline" data-activate="${r.id}">Activate</button>`}
           <button class="btn-green" data-draw="${r.id}">Draw Winner</button>
-          <button class="btn-outline" data-winnerform-toggle="${r.id}">${r.winner ? 'Edit Winner' : 'Set Winner Manually'}</button>
-          ${r.winner ? `<button class="btn-red" data-clearwinner="${r.id}">Clear Winner</button>` : ''}
           <button class="btn-red" data-delete="${r.id}">Delete</button>
-        </div>
-        ${r.winner ? `
-        <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px;">
-          🏆 Winner: <strong style="color:var(--text-primary);">${esc(r.winner.fullName)}</strong> — ticket #${esc(r.winner.number)}${r.winner.phone ? ` · ${esc(r.winner.phone)}` : ''} <span style="opacity:.7;">(${new Date(r.winner.drawnAt).toLocaleString()})</span>
-        </div>` : ''}
-        <div class="raffle-edit-form" data-winnerform="${r.id}" style="display:none;">
-          <div class="grid2">
-            <div><label>Winner Ticket Number</label><input type="text" data-winner-number="${r.id}" value="${r.winner ? esc(r.winner.number) : ''}" placeholder="e.g. 452"></div>
-            <div><label>Winner Full Name</label><input type="text" data-winner-name="${r.id}" value="${r.winner ? esc(r.winner.fullName) : ''}" placeholder="e.g. Abebe Kebede"></div>
-            <div><label>Winner Phone (optional)</label><input type="text" data-winner-phone="${r.id}" value="${r.winner && r.winner.phone ? esc(r.winner.phone) : ''}" placeholder="e.g. 0911223344"></div>
-          </div>
-          <div style="font-size:11.5px;color:var(--text-tertiary);margin:6px 0 10px;">This is entered freely by you and is not checked against real orders — use it to correct a draw or record an off-platform result.</div>
-          <button class="btn-green" data-winnersave="${r.id}">Save Winner</button>
-          <button class="btn-outline" data-winnercancel="${r.id}">Cancel</button>
         </div>
         <div class="raffle-edit-form" data-editform="${r.id}" style="display:none;">
           <div class="grid2">
@@ -283,7 +293,7 @@ async function loadRaffles(){
       await api(`/raffles/${b.dataset.activate}`, { method:'PUT', body: JSON.stringify({ status:'active' }) }); loadRaffles();
     }));
     wrap.querySelectorAll('[data-delete]').forEach(b=> b.addEventListener('click', async ()=>{
-      if (!confirm('Delete this raffle and all its data, including every order/ticket placed on it? (If it has a winner, that announcement is kept in the Winners tab.)')) return;
+      if (!confirm('Delete this raffle and all its data, including every order/ticket placed on it?')) return;
       b.disabled = true;
       try{
         const res = await api(`/raffles/${b.dataset.delete}`, { method:'DELETE' });
@@ -294,40 +304,9 @@ async function loadRaffles(){
     wrap.querySelectorAll('[data-draw]').forEach(b=> b.addEventListener('click', async ()=>{
       try{
         const res = await api(`/raffles/${b.dataset.draw}/draw`, { method:'POST' });
-        alert(`Winner: ticket #${res.winner.number} — ${res.winner.fullName} (${res.winner.phone})\n\nThis was NOT posted to buyers. Use "Post Notification" below if you'd like to announce it.`);
+        alert(`Winner: ticket #${res.winner.number} — ${res.winner.fullName} (${res.winner.phone})`);
         loadRaffles();
-        offerToPostWinnerNotification(b.dataset.draw, res.winner);
       }catch(e){ alert(e.message); }
-    }));
-    wrap.querySelectorAll('[data-winnerform-toggle]').forEach(b=> b.addEventListener('click', ()=>{
-      const id = b.dataset.winnerformToggle;
-      const form = wrap.querySelector(`[data-winnerform="${id}"]`);
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    }));
-    wrap.querySelectorAll('[data-winnercancel]').forEach(b=> b.addEventListener('click', ()=>{
-      wrap.querySelector(`[data-winnerform="${b.dataset.winnercancel}"]`).style.display = 'none';
-    }));
-    wrap.querySelectorAll('[data-winnersave]').forEach(b=> b.addEventListener('click', async ()=>{
-      const id = b.dataset.winnersave;
-      const number = wrap.querySelector(`[data-winner-number="${id}"]`).value.trim();
-      const fullName = wrap.querySelector(`[data-winner-name="${id}"]`).value.trim();
-      const phone = wrap.querySelector(`[data-winner-phone="${id}"]`).value.trim();
-      if (!number || !fullName){ alert('Ticket number and winner name are required'); return; }
-      b.disabled = true;
-      try{
-        await api(`/raffles/${id}/winner`, { method:'POST', body: JSON.stringify({ number, fullName, phone }) });
-        loadRaffles();
-        offerToPostWinnerNotification(id, { number, fullName, phone });
-      }catch(e){ alert(e.message); }
-      finally{ b.disabled = false; }
-    }));
-    wrap.querySelectorAll('[data-clearwinner]').forEach(b=> b.addEventListener('click', async ()=>{
-      if (!confirm('Clear this raffle\'s winner? This also reopens the raffle as active.')) return;
-      b.disabled = true;
-      try{
-        await api(`/raffles/${b.dataset.clearwinner}/winner`, { method:'DELETE' });
-        loadRaffles();
-      }catch(e){ alert(e.message); b.disabled = false; }
     }));
     wrap.querySelectorAll('[data-updatedate]').forEach(b=> b.addEventListener('click', async ()=>{
       const id = b.dataset.updatedate;
@@ -357,24 +336,6 @@ async function loadRaffles(){
       finally{ inp.value = ''; }
     }));
   }catch(e){ console.error(e); }
-}
-
-// Called after a draw or manual winner-set. Deliberately asks first and
-// lets the admin edit the wording (via prompt) rather than posting
-// anything automatically - see the note in db.js on `notifications`.
-function offerToPostWinnerNotification(raffleId, winner){
-  if (!confirm('Post this as a buyer notification now? (You can edit the wording first, or do this later from the Notifications tab.)')) return;
-  const raffle = cachedRaffles.find(r => r.id === raffleId);
-  const raffleTitle = raffle ? raffle.title : 'the raffle';
-  const defaultTitle = `${winner.fullName} won ${raffleTitle}!`;
-  const defaultMessage = `Congratulations to ${winner.fullName}, winner of ticket #${winner.number} in the ${raffleTitle} raffle!`;
-  const title = prompt('Notification title:', defaultTitle);
-  if (title === null) return;
-  const message = prompt('Notification message:', defaultMessage);
-  if (message === null) return;
-  if (!title.trim() || !message.trim()){ alert('Title and message are required - not posted.'); return; }
-  postNotification({ type: 'winner', title: title.trim(), message: message.trim(), ticketNumber: winner.number })
-    .catch(e => alert(e.message));
 }
 
 document.getElementById('newImageFile').addEventListener('change', (e)=>{
@@ -434,55 +395,6 @@ async function loadBanks(){
     }));
   }catch(e){ console.error(e); }
 }
-
-// Buyer-facing notifications - entirely admin-authored. Drawing/setting a
-// raffle winner (below) intentionally doesn't create one of these
-// automatically; this list is the only thing that reaches the buyer app.
-async function loadNotifs(){
-  try{
-    const data = await api('/notifications');
-    const wrap = document.getElementById('notifsList');
-    if (!data.notifications.length){ wrap.innerHTML = '<div class="empty-msg">No notifications posted yet</div>'; return; }
-    wrap.innerHTML = data.notifications.map(n=> `
-      <div class="raffle-item">
-        <div>
-          <div style="font-weight:700;">${n.type === 'winner' ? '🏆' : '🔔'} ${esc(n.title)}${n.ticketNumber ? ` <span style="color:var(--text-tertiary);font-weight:400;">— ticket #${esc(n.ticketNumber)}</span>` : ''}</div>
-          <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">${esc(n.message)}</div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Posted ${new Date(n.createdAt).toLocaleString()}</div>
-        </div>
-        <button class="btn-red" data-delnotif="${esc(n.id)}">Remove</button>
-      </div>
-    `).join('');
-    wrap.querySelectorAll('[data-delnotif]').forEach(btn=> btn.addEventListener('click', async ()=>{
-      if (!confirm('Remove this notification? It will disappear from the buyer app right away.')) return;
-      btn.disabled = true;
-      try{
-        await api(`/notifications/${btn.dataset.delnotif}`, { method:'DELETE' });
-        loadNotifs();
-      }catch(e){ alert(e.message); btn.disabled = false; }
-    }));
-  }catch(e){ console.error(e); }
-}
-async function postNotification({ type, title, message, ticketNumber }){
-  await api('/notifications', { method:'POST', body: JSON.stringify({ type, title, message, ticketNumber }) });
-  loadNotifs();
-}
-document.getElementById('postNotifBtn').addEventListener('click', async ()=>{
-  const type = document.getElementById('newNotifType').value;
-  const ticketNumber = document.getElementById('newNotifTicket').value.trim();
-  const title = document.getElementById('newNotifTitle').value.trim();
-  const message = document.getElementById('newNotifMessage').value.trim();
-  if (!title || !message){ alert('Title and message are required'); return; }
-  const btn = document.getElementById('postNotifBtn');
-  btn.disabled = true;
-  try{
-    await postNotification({ type, title, message, ticketNumber });
-    document.getElementById('newNotifTicket').value = '';
-    document.getElementById('newNotifTitle').value = '';
-    document.getElementById('newNotifMessage').value = '';
-  }catch(e){ alert(e.message); }
-  finally{ btn.disabled = false; }
-});
 document.getElementById('addBankBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('newBankName').value.trim();
   const holder = document.getElementById('newBankHolder').value.trim();
