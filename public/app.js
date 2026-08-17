@@ -333,7 +333,7 @@ function raffleCardHtml(raffle, idx){
             <div class="p-icon">👥</div>
             <div><div class="p-lbl">${t('participantsLbl')}</div><div class="p-num">${raffle.soldCount.toLocaleString()}</div></div>
           </div>
-          <button class="buy-ticket-btn" data-open-detail="${raffle.id}">${t('buyTicket')}</button>
+          <div class="step-wrap"><span class="step-badge step-4">4</span><button class="buy-ticket-btn" data-open-detail="${raffle.id}">${t('buyTicket')}</button></div>
         </div>
       </div>
     </div>
@@ -412,7 +412,7 @@ function renderDetail(raffle){
         <span>${t('selectedNumsLbl')}</span>
         <div class="selected-chips" id="selectedChips"></div>
       </div>
-      <button class="btn btn-outline-pink" id="pickNumbersBtn">🎯 <span>${t('pickLabel')}</span></button>
+      <div class="step-wrap step-wrap-block"><span class="step-badge step-5">5</span><button class="btn btn-outline-pink" id="pickNumbersBtn">🎯 <span>${t('pickLabel')}</span></button></div>
       <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
     </div>
   `;
@@ -595,7 +595,7 @@ function renderCheckoutStep1(){
     <div class="field"><label>${t('fullNameLbl')}</label><input type="text" id="checkoutFullName" placeholder="${t('fullNameLbl')}" value="${esc(localStorage.getItem('fullName')||'')}"></div>
     <div class="field"><label>${t('phoneLbl')}</label><input type="tel" id="checkoutPhone" placeholder="e.g. 251912345678" value="${esc(localStorage.getItem('phone')||'')}"></div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next">${t('continueLbl')} →</button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<div class="step-wrap step-wrap-block"><span class="step-badge step-6">6</span><button class="btn btn-gold" id="checkoutStep1Next">${t('continueLbl')} →</button></div>`;
   document.getElementById('checkoutStep1Next').addEventListener('click', submitStep1);
 }
 
@@ -661,7 +661,7 @@ function renderCheckoutStep2(banks){
     </div>
     <input type="file" id="receiptInput" accept="image/*" style="display:none;">
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next">${t('submitPaymentLbl')} →</button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<div class="step-wrap step-wrap-block"><span class="step-badge step-7">7</span><button class="btn btn-gold" id="checkoutStep2Next">${t('submitPaymentLbl')} →</button></div>`;
 
   document.querySelectorAll('.bank-card').forEach(card=>{
     card.addEventListener('click', ()=>{
@@ -739,7 +739,7 @@ function renderCheckoutStep3(){
       <div style="color:var(--text-tertiary);font-size:11.5px;margin-top:6px;">Save this ID - you'll need it with your phone number to look up your tickets later.</div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone">Done</button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<div class="step-wrap step-wrap-block"><span class="step-badge step-8">8</span><button class="btn btn-outline" id="checkoutDone">Done</button></div>`;
   document.getElementById('checkoutDone').addEventListener('click', ()=>{
     document.getElementById('checkoutModalBackdrop').classList.remove('show');
     selectedNumbers = [];
