@@ -236,9 +236,22 @@ async function loadRaffles(){
           <input type="file" accept="image/*" style="display:none" data-photoinput="${r.id}">
           <button class="btn-outline" data-photobtn="${r.id}">${r.imageUrl ? 'Change Photo' : 'Add Photo'}</button>
           <button class="btn-outline" data-editbtn="${r.id}">Edit</button>
+          <button class="btn-outline" data-taketicketsbtn="${r.id}">Take Tickets</button>
           ${r.status==='active' ? `<button class="btn-outline" data-end="${r.id}">End</button>` : `<button class="btn-outline" data-activate="${r.id}">Activate</button>`}
           <button class="btn-green" data-draw="${r.id}">Draw Winner</button>
           <button class="btn-red" data-delete="${r.id}">Delete</button>
+        </div>
+        <div class="raffle-edit-form" data-taketicketsform="${r.id}" style="display:none;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Marks tickets as taken directly with no order/payment - use for reserving numbers yourself, giveaways, or offline sales. ${r.remaining} of ${r.totalNumbers} still available.</p>
+          <div class="grid2">
+            <div><label>Quantity (random pick)</label><input type="number" min="1" max="${r.remaining}" placeholder="e.g. 100" data-take-qty="${r.id}"></div>
+            <div><label>Or specific numbers (comma separated)</label><input type="text" placeholder="e.g. 5, 12, 40" data-take-numbers="${r.id}"></div>
+          </div>
+          <div><label>Note (optional, e.g. who it's for)</label><input type="text" placeholder="e.g. Reserved for family" data-take-note="${r.id}"></div>
+          <div class="row-actions">
+            <button class="btn-gold" style="max-width:160px;" data-taketicketsconfirm="${r.id}">Take Tickets</button>
+            <button class="btn-outline" data-canceltaketicketsbtn="${r.id}">Cancel</button>
+          </div>
         </div>
         <div class="raffle-edit-form" data-editform="${r.id}" style="display:none;">
           <div class="grid2">
@@ -268,6 +281,34 @@ async function loadRaffles(){
     }));
     wrap.querySelectorAll('[data-canceleditbtn]').forEach(b=> b.addEventListener('click', ()=>{
       wrap.querySelector(`[data-editform="${b.dataset.canceleditbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-taketicketsbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      const id = b.dataset.taketicketsbtn;
+      const form = wrap.querySelector(`[data-taketicketsform="${id}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }));
+    wrap.querySelectorAll('[data-canceltaketicketsbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-taketicketsform="${b.dataset.canceltaketicketsbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-taketicketsconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.taketicketsconfirm;
+      const qtyRaw = wrap.querySelector(`[data-take-qty="${id}"]`).value.trim();
+      const numsRaw = wrap.querySelector(`[data-take-numbers="${id}"]`).value.trim();
+      const note = wrap.querySelector(`[data-take-note="${id}"]`).value.trim();
+      if (!qtyRaw && !numsRaw){ alert('Enter a quantity or specific numbers'); return; }
+      const body = { note: note || undefined };
+      if (numsRaw) {
+        body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      } else {
+        body.quantity = qtyRaw;
+      }
+      b.disabled = true;
+      try{
+        const res = await api(`/raffles/${id}/admin-take`, { method:'POST', body: JSON.stringify(body) });
+        alert(`Took ${res.order.ticketNumbers.length} ticket(s): ${res.order.ticketNumbers.join(', ')}`);
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
     }));
     wrap.querySelectorAll('[data-savebtn]').forEach(b=> b.addEventListener('click', async ()=>{
       const id = b.dataset.savebtn;
