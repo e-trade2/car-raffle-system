@@ -55,7 +55,7 @@
   .badge{ font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; display:inline-block; }
   .badge.pending, .badge.awaiting_payment{ background:rgba(245,183,49,0.15); color:var(--accent-gold); }
   .badge.confirmed{ background:rgba(34,197,94,0.15); color:var(--accent-green); }
-  .badge.rejected, .badge.expired{ background:rgba(229,72,77,0.15); color:var(--accent-red); }
+  .badge.rejected, .badge.expired, .badge.released{ background:rgba(229,72,77,0.15); color:var(--accent-red); }
   .receipt-link{ color:var(--accent-gold); font-size:12.5px; text-decoration:underline; cursor:pointer; }
   .row-actions{ display:flex; gap:6px; }
   .row-actions button{ padding:7px 12px; font-size:12px; }
@@ -84,7 +84,7 @@
   <h1>🏆 Admin Login</h1>
   <div class="err" id="loginErr"></div>
   <label>Username</label>
-  <input type="text" id="loginUser" value=" ">
+  <input type="text" id="loginUser" value="admin">
   <label>Password</label>
   <div class="pw-wrap">
     <input type="password" id="loginPass" placeholder="••••••••">
@@ -135,6 +135,7 @@
         <option value="rejected">Rejected</option>
         <option value="awaiting_payment">Awaiting payment</option>
         <option value="expired">Expired</option>
+        <option value="released">Released (admin-taken)</option>
       </select>
       <button class="btn-outline" id="refreshOrdersBtn">Refresh</button>
     </div>
