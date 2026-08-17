@@ -6,7 +6,7 @@ const fs = require('fs');
 const { randomInt, randomBytes, createHash, timingSafeEqual } = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { publicRaffle, verifyUploadedImage, handleUpload } = require('../utils');
+const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
@@ -511,6 +511,76 @@ router.put('/raffles/:id', (req, res) => {
   }
   db.save(data);
   res.json({ raffle });
+});
+
+// ---- Admin takes a batch of tickets directly, no order/payment involved ----
+// For numbers the admin wants held back for themselves, giveaways, offline
+// cash sales, etc. Either give an exact `numbers` list, or a `quantity` and
+// let the system pick that many random still-available numbers - the same
+// randomAvailableNumbers() used for the public "auto-pick" flow, so there's
+// no bias in which numbers come out.
+// This creates a normal 'confirmed' order (total: 0, so it never inflates
+// revenue) so it plugs into the existing order lifecycle for free - it shows
+// up in the Orders tab, and can be released again with the existing
+// Unconfirm -> Reject flow if the admin changes their mind.
+router.post('/raffles/:id/admin-take', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+  const raffle = data.raffles.find(r => r.id === req.params.id);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+
+  const { numbers, quantity, note } = req.body || {};
+  let selected;
+
+  if (Array.isArray(numbers) && numbers.length) {
+    const normalized = numbers.map(n => Number.parseInt(n, 10));
+    if (normalized.some(n => !Number.isInteger(n) || n < 1 || n > raffle.totalNumbers)) {
+      return res.status(400).json({ error: 'One or more numbers are invalid for this raffle' });
+    }
+    if (new Set(normalized).size !== normalized.length) {
+      return res.status(400).json({ error: 'Duplicate numbers in selection' });
+    }
+    const conflict = normalized.find(n => numberStatus(raffle, n) !== 'available');
+    if (conflict !== undefined) {
+      return res.status(409).json({ error: `Number ${conflict} is already taken or pending`, conflict });
+    }
+    selected = normalized;
+  } else {
+    const qty = Number.parseInt(quantity, 10);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'Provide either a positive integer quantity, or a numbers array' });
+    }
+    selected = randomAvailableNumbers(raffle, qty);
+    if (selected.length < qty) {
+      return res.status(409).json({ error: `Only ${selected.length} numbers are still available, can't take ${qty}` });
+    }
+  }
+
+  const order = {
+    id: nanoid(10),
+    raffleId: raffle.id,
+    ticketNumbers: selected,
+    quantity: selected.length,
+    unitPrice: raffle.price,
+    total: 0, // admin-taken, not a real sale - kept out of revenue on purpose
+    fullName: note ? `Admin: ${note}` : 'Admin Reserved',
+    phone: 'ADMIN',
+    customerId: null,
+    status: 'confirmed',
+    bankSelected: null,
+    receiptPath: null,
+    adminTaken: true,
+    createdAt: new Date().toISOString(),
+    confirmedAt: new Date().toISOString()
+  };
+
+  raffle.takenNumbers = raffle.takenNumbers || [];
+  for (const n of selected) {
+    if (!raffle.takenNumbers.includes(n)) raffle.takenNumbers.push(n);
+  }
+  data.orders.push(order);
+  db.save(data);
+  res.json({ order, raffle: publicRaffle(raffle) });
 });
 
 router.delete('/raffles/:id', (req, res) => {
