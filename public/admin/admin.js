@@ -150,8 +150,9 @@ function renderOrders(orders){
         <div class="row-actions">
           ${o.status === 'pending' ? `<button class="btn-green" data-approve="${o.id}">Approve</button><button class="btn-red" data-reject="${o.id}">Reject</button>` : ''}
           ${o.status === 'awaiting_payment' ? `<button class="btn-red" data-reject="${o.id}">Cancel</button>` : ''}
-          ${o.status === 'confirmed' ? `<button class="btn-red" data-unconfirm="${o.id}">Unconfirm</button>` : ''}
-          ${(['rejected','expired'].includes(o.status) || o.raffleStatus === 'ended') ? `<button class="btn-red" data-delete="${o.id}">Delete</button>` : ''}
+          ${o.status === 'confirmed' && o.adminTaken ? `<button class="btn-red" data-release="${o.id}">Release</button>` : ''}
+          ${o.status === 'confirmed' && !o.adminTaken ? `<button class="btn-red" data-unconfirm="${o.id}">Unconfirm</button>` : ''}
+          ${(['rejected','expired','released'].includes(o.status) || o.raffleStatus === 'ended') ? `<button class="btn-red" data-delete="${o.id}">Delete</button>` : ''}
         </div>
       </td>
     </tr>
@@ -178,6 +179,14 @@ function renderOrders(orders){
     btn.addEventListener('click', async ()=>{
       btn.disabled = true;
       try{ await api(`/orders/${btn.dataset.reject}/reject`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-release]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if (!confirm('Release these tickets back to available? Anyone will be able to pick these numbers again.')) return;
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.release}/admin-release`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
       catch(e){ alert(e.message); btn.disabled = false; }
     });
   });
