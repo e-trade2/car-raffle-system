@@ -695,6 +695,53 @@ router.post('/orders/:id/unconfirm', (req, res) => {
   res.json({ order });
 });
 
+// ---- Release admin-taken tickets back to available ----
+// admin-take (above) marks numbers taken with no real order/payment behind
+// them, so releasing them shouldn't go through the real Unconfirm -> Reject
+// two-step meant for actual buyers - one click, straight back to available.
+// Only works on batches created via admin-take (order.adminTaken), and only
+// while they're still 'confirmed' (that's the only state where the numbers
+// are actually held in raffle.takenNumbers). Pass `numbers` to release part
+// of a batch; omit it to release the whole thing.
+router.post('/orders/:id/admin-release', (req, res) => {
+  const data = db.load();
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!order.adminTaken) {
+    return res.status(400).json({ error: 'Only admin-taken batches can be released this way - use Unconfirm/Reject for real orders' });
+  }
+  if (order.status !== 'confirmed') {
+    return res.status(400).json({ error: `Cannot release a batch in status ${order.status}` });
+  }
+
+  const raffle = data.raffles.find(r => r.id === order.raffleId);
+  const { numbers } = req.body || {};
+  let toRelease = order.ticketNumbers;
+  if (Array.isArray(numbers) && numbers.length) {
+    const normalized = numbers.map(n => Number.parseInt(n, 10));
+    const invalid = normalized.find(n => !order.ticketNumbers.includes(n));
+    if (invalid !== undefined) {
+      return res.status(400).json({ error: `Number ${invalid} isn't part of this batch` });
+    }
+    toRelease = normalized;
+  }
+
+  if (raffle) {
+    raffle.takenNumbers = raffle.takenNumbers.filter(n => !toRelease.includes(n));
+  }
+  const remaining = order.ticketNumbers.filter(n => !toRelease.includes(n));
+  if (remaining.length) {
+    // Partial release - batch is still 'confirmed', just smaller now.
+    order.ticketNumbers = remaining;
+    order.quantity = remaining.length;
+  } else {
+    order.status = 'released';
+    order.releasedAt = new Date().toISOString();
+  }
+  db.save(data);
+  res.json({ order, released: toRelease, raffle: raffle ? publicRaffle(raffle) : null });
+});
+
 // ---- Delete an order record ----
 // Deliberately restrictive about *when* this is allowed, because unlike
 // reject/unconfirm this can't be undone - there's no db.json history to
@@ -716,7 +763,7 @@ router.delete('/orders/:id', (req, res) => {
 
   const raffle = data.raffles.find(r => r.id === order.raffleId);
   const raffleEnded = raffle ? raffle.status === 'ended' : false;
-  const orderInactive = ['rejected', 'expired'].includes(order.status);
+  const orderInactive = ['rejected', 'expired', 'released'].includes(order.status);
   if (!orderInactive && !raffleEnded) {
     return res.status(400).json({
       error: `Cannot delete an order in status "${order.status}" unless its raffle has ended. Reject or unconfirm it first.`
