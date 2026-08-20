@@ -114,6 +114,15 @@ function defaultData() {
     // /api/telegram/prefill) to fill in name/phone automatically instead of
     // asking the user to retype what they already gave the bot.
     telegramUsers: [],
+    // Site-wide broadcast messages the admin can post from Admin ->
+    // Announcements - anything from "we have a winner" to a warning or a
+    // general update. Shown to every visitor under the bell icon on the
+    // customer app (see GET /api/announcements in routes/public.js), and
+    // optionally also pushed as a Telegram DM to every linked user at
+    // creation time (see POST /api/admin/announcements). Kept as its own
+    // list rather than folded into raffles/orders since an announcement
+    // isn't tied to any one raffle or order.
+    announcements: [],
     banks: [
       { id: nanoid(6), name: 'Telebirr', holder: 'Getachew', account: '0924242419' },
       { id: nanoid(6), name: 'Commercial Bank of Ethiopia', holder: 'Getachew Fikadu Jirata', account: '1000528139489' }
@@ -133,6 +142,13 @@ function load() {
   // no customer id and could never pass the GET /tickets check below.
   if (!Array.isArray(data.customers)) data.customers = [];
   if (!Array.isArray(data.telegramUsers)) data.telegramUsers = [];
+  if (!Array.isArray(data.announcements)) data.announcements = [];
+  // Back-compat for telegramUsers records written before banning existed.
+  for (const u of data.telegramUsers) {
+    if (u.banned === undefined) u.banned = false;
+    if (u.bannedAt === undefined) u.bannedAt = null;
+    if (u.bannedReason === undefined) u.bannedReason = null;
+  }
   for (const admin of data.admins || []) {
     if (admin.email === undefined) admin.email = null;
     if (admin.resetTokenHash === undefined) admin.resetTokenHash = null;
@@ -185,7 +201,11 @@ function upsertTelegramUser(data, telegramId, phone, fullName, username) {
     if (username) user.username = username;
     user.updatedAt = new Date().toISOString();
   } else {
-    user = { telegramId: id, phone, fullName, username: username || null, updatedAt: new Date().toISOString() };
+    user = {
+      telegramId: id, phone, fullName, username: username || null,
+      banned: false, bannedAt: null, bannedReason: null,
+      updatedAt: new Date().toISOString()
+    };
     data.telegramUsers.push(user);
   }
   return user;
@@ -193,6 +213,61 @@ function upsertTelegramUser(data, telegramId, phone, fullName, username) {
 
 function findTelegramUser(data, telegramId) {
   return data.telegramUsers.find(u => u.telegramId === String(telegramId)) || null;
+}
+
+// ---- Banning ----
+// A ban lives on the telegramUsers record (keyed by telegramId, the stable
+// identity) rather than on the phone/customer record, since a phone number
+// can be reused/reassigned but a Telegram account can't. isPhoneBanned is
+// what actually gates order creation (routes/public.js POST /orders),
+// since that endpoint only ever sees a phone number, not a telegramId -
+// it works because upsertTelegramUser links exactly one phone per
+// telegramId, and a re-share from a banned account intentionally does NOT
+// clear the ban (see upsertTelegramUser above).
+function banTelegramUser(data, telegramId, reason) {
+  const user = findTelegramUser(data, telegramId);
+  if (!user) return null;
+  user.banned = true;
+  user.bannedAt = new Date().toISOString();
+  user.bannedReason = (reason || '').trim() || null;
+  return user;
+}
+
+function unbanTelegramUser(data, telegramId) {
+  const user = findTelegramUser(data, telegramId);
+  if (!user) return null;
+  user.banned = false;
+  user.bannedAt = null;
+  user.bannedReason = null;
+  return user;
+}
+
+function isPhoneBanned(data, phone) {
+  return data.telegramUsers.some(u => u.phone === phone && u.banned);
+}
+
+// ---- Announcements (on-site broadcast, shown under the bell icon) ----
+// type is purely a display hint for the customer app (which icon/color to
+// use) - it has no effect on delivery. 'update' is the default for a plain
+// admin message; 'winner' and 'warning' let the frontend style those
+// differently (e.g. a 🏆 vs a ⚠️ icon) without needing separate lists.
+function createAnnouncement(data, { title, message, type }) {
+  const announcement = {
+    id: nanoid(8),
+    title: (title || '').trim(),
+    message: (message || '').trim(),
+    type: ['winner', 'warning', 'update'].includes(type) ? type : 'update',
+    createdAt: new Date().toISOString()
+  };
+  data.announcements.unshift(announcement); // newest first
+  return announcement;
+}
+
+function deleteAnnouncement(data, id) {
+  const idx = data.announcements.findIndex(a => a.id === id);
+  if (idx === -1) return false;
+  data.announcements.splice(idx, 1);
+  return true;
 }
 
 function save(data) {
@@ -252,4 +327,10 @@ function sweepExpired(data) {
   return data;
 }
 
-module.exports = { load, save, sweepExpired, defaultData, getOrCreateCustomer, upsertTelegramUser, findTelegramUser, DATA_FILE };
+module.exports = {
+  load, save, sweepExpired, defaultData, getOrCreateCustomer,
+  upsertTelegramUser, findTelegramUser,
+  banTelegramUser, unbanTelegramUser, isPhoneBanned,
+  createAnnouncement, deleteAnnouncement,
+  DATA_FILE
+};
