@@ -80,6 +80,7 @@ function initDashboard(){
   loadRaffles();
   loadBanks();
   loadTelegramUsers();
+  loadAnnouncements();
 }
 
 // ===== Summary =====
@@ -119,9 +120,100 @@ function renderTelegramUsers(users){
       <td>${esc(u.phone)}</td>
       <td>${esc(u.telegramId)}</td>
       <td>${new Date(u.updatedAt).toLocaleString()}</td>
+      <td>
+        <span class="badge ${u.banned ? 'banned' : 'active-status'}" ${u.banned && u.bannedReason ? `title="${esc(u.bannedReason)}"` : ''}>
+          ${u.banned ? 'Banned' : 'Active'}
+        </span>
+      </td>
+      <td>
+        ${u.banned
+          ? `<button class="btn-red" data-unban="${esc(u.telegramId)}">Unban</button>`
+          : `<button class="btn-red" data-ban="${esc(u.telegramId)}">Ban</button>`}
+      </td>
     </tr>
   `).join('');
+
+  body.querySelectorAll('[data-ban]').forEach(btn => btn.addEventListener('click', async () => {
+    const telegramId = btn.dataset.ban;
+    const reason = prompt('Reason for banning this user (optional):') || '';
+    if (!confirm('Ban this user? They will no longer be able to place new orders with their linked phone number.')) return;
+    try {
+      await api(`/telegram-users/${encodeURIComponent(telegramId)}/ban`, {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      });
+      loadTelegramUsers();
+    } catch (e) { alert(e.message); }
+  }));
+
+  body.querySelectorAll('[data-unban]').forEach(btn => btn.addEventListener('click', async () => {
+    const telegramId = btn.dataset.unban;
+    if (!confirm('Unban this user and allow them to place orders again?')) return;
+    try {
+      await api(`/telegram-users/${encodeURIComponent(telegramId)}/unban`, { method: 'POST' });
+      loadTelegramUsers();
+    } catch (e) { alert(e.message); }
+  }));
 }
+
+// ===== Announcements (site-wide, shown under the bell icon) =====
+async function loadAnnouncements(){
+  try{
+    const data = await api('/announcements');
+    renderAnnouncements(data.announcements);
+  }catch(e){ console.error(e); }
+}
+
+const ANN_TYPE_LABEL = { winner: '🏆 Winner', warning: '⚠️ Warning', update: '📢 Update' };
+
+function renderAnnouncements(list){
+  const body = document.getElementById('announcementsList');
+  const empty = document.getElementById('announcementsEmpty');
+  if (!body) return;
+  if (!list.length){ body.innerHTML=''; if (empty) empty.style.display='block'; return; }
+  if (empty) empty.style.display = 'none';
+  body.innerHTML = list.map(a => `
+    <div class="card" style="padding:14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--accent-gold);margin-bottom:4px;">${ANN_TYPE_LABEL[a.type] || ANN_TYPE_LABEL.update}</div>
+          <div style="font-weight:700;font-size:14px;">${esc(a.title)}</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;white-space:pre-wrap;">${esc(a.message)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">${new Date(a.createdAt).toLocaleString()}</div>
+        </div>
+        <button class="btn-red" data-delann="${esc(a.id)}" style="flex:none;">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  body.querySelectorAll('[data-delann]').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirm('Delete this announcement? It will disappear from the bell icon for all visitors.')) return;
+    try {
+      await api(`/announcements/${btn.dataset.delann}`, { method: 'DELETE' });
+      loadAnnouncements();
+    } catch (e) { alert(e.message); }
+  }));
+}
+
+document.getElementById('postAnnBtn').addEventListener('click', async () => {
+  const title = document.getElementById('annTitle').value.trim();
+  const message = document.getElementById('annMessage').value.trim();
+  const type = document.getElementById('annType').value;
+  const notifyTelegram = document.getElementById('annNotifyTelegram').checked;
+  const errEl = document.getElementById('annErr');
+  showErr(errEl, '');
+  if (!title || !message){ showErr(errEl, 'Title and message are required'); return; }
+  try {
+    await api('/announcements', {
+      method: 'POST',
+      body: JSON.stringify({ title, message, type, notifyTelegram })
+    });
+    document.getElementById('annTitle').value = '';
+    document.getElementById('annMessage').value = '';
+    document.getElementById('annNotifyTelegram').checked = false;
+    loadAnnouncements();
+  } catch (e) { showErr(errEl, e.message); }
+});
 
 // ===== Orders =====
 async function loadOrders(){
