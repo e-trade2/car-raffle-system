@@ -55,7 +55,8 @@
   .badge{ font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; display:inline-block; }
   .badge.pending, .badge.awaiting_payment{ background:rgba(245,183,49,0.15); color:var(--accent-gold); }
   .badge.confirmed{ background:rgba(34,197,94,0.15); color:var(--accent-green); }
-  .badge.rejected, .badge.expired, .badge.released{ background:rgba(229,72,77,0.15); color:var(--accent-red); }
+  .badge.rejected, .badge.expired, .badge.released, .badge.banned{ background:rgba(229,72,77,0.15); color:var(--accent-red); }
+  .badge.active-status{ background:rgba(34,197,94,0.15); color:var(--accent-green); }
   .receipt-link{ color:var(--accent-gold); font-size:12.5px; text-decoration:underline; cursor:pointer; }
   .row-actions{ display:flex; gap:6px; }
   .row-actions button{ padding:7px 12px; font-size:12px; }
@@ -84,7 +85,7 @@
   <h1>🏆 Admin Login</h1>
   <div class="err" id="loginErr"></div>
   <label>Username</label>
-  <input type="text" id="loginUser" value=" ">
+  <input type="text" id="loginUser" value="admin">
   <label>Password</label>
   <div class="pw-wrap">
     <input type="password" id="loginPass" placeholder="••••••••">
@@ -122,6 +123,7 @@
     <div class="tab-btn" data-panel="rafflesPanel">Raffles</div>
     <div class="tab-btn" data-panel="banksPanel">Bank Accounts</div>
     <div class="tab-btn" data-panel="telegramPanel">Telegram Users</div>
+    <div class="tab-btn" data-panel="announcementsPanel">Announcements</div>
     <div class="tab-btn" data-panel="settingsPanel">Settings</div>
   </div>
 
@@ -193,10 +195,44 @@
       <h3>Shared Phone Numbers <span id="telegramTotalBadge" style="font-weight:400;color:var(--text-secondary);font-size:13px;"></span></h3>
       <p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;">Everyone who has shared their phone number with the Telegram bot, most recent first.</p>
       <table>
-        <thead><tr><th>Username</th><th>Full Name</th><th>Phone</th><th>Telegram ID</th><th>Shared At</th></tr></thead>
+        <thead><tr><th>Username</th><th>Full Name</th><th>Phone</th><th>Telegram ID</th><th>Shared At</th><th>Status</th><th></th></tr></thead>
         <tbody id="telegramUsersBody"></tbody>
       </table>
       <div class="empty-msg" id="telegramUsersEmpty" style="display:none;">No one has shared their phone number yet</div>
+    </div>
+  </div>
+
+  <!-- ANNOUNCEMENTS -->
+  <div class="panel" id="announcementsPanel">
+    <div class="card">
+      <h3>New Announcement</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;">Shown to every visitor under the bell icon on the customer app. Use it for winner news, warnings, or general updates.</p>
+      <div class="grid2" style="margin-bottom:12px;">
+        <div><label>Title</label><input type="text" id="annTitle" placeholder="e.g. Payment method update"></div>
+        <div>
+          <label>Type</label>
+          <select id="annType">
+            <option value="update">Update</option>
+            <option value="winner">Winner</option>
+            <option value="warning">Warning</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label>Message</label>
+        <textarea id="annMessage" rows="4" placeholder="Write the announcement..." style="width:100%;resize:vertical;"></textarea>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13px;margin-bottom:12px;">
+        <input type="checkbox" id="annNotifyTelegram" style="width:auto;">
+        Also send as a Telegram DM to everyone who has linked their phone
+      </label>
+      <div class="err" id="annErr"></div>
+      <button class="btn-gold" id="postAnnBtn" style="max-width:220px;">Post Announcement</button>
+    </div>
+    <div class="card">
+      <h3>Past Announcements</h3>
+      <div id="announcementsList"></div>
+      <div class="empty-msg" id="announcementsEmpty" style="display:none;">No announcements posted yet</div>
     </div>
   </div>
 
