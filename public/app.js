@@ -57,6 +57,7 @@ const TEXT = {
     noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
     wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
     legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendReservedLbl:"Reserved", legendFreeLbl:"Free",
+    announcementsLbl:"Announcements", noAnnouncementsLbl:"No announcements yet",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -80,6 +81,7 @@ const TEXT = {
     noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
     wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
     legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendReservedLbl:"የተጠበቀ", legendFreeLbl:"ክፍት",
+    announcementsLbl:"ማስታወቂያዎች", noAnnouncementsLbl:"እስካሁን ምንም ማስታወቂያ የለም",
   },
   om: {
     backLabel:"Deebi'i", cdLabel:"Yeroo Hafe",
@@ -103,6 +105,7 @@ const TEXT = {
     noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
     wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
     legendSelectedLbl:"Filatame", legendTakenLbl:"Qabame", legendReservedLbl:"Eegame", legendFreeLbl:"Banaa",
+    announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -126,6 +129,7 @@ function applyLang(lang){
   document.getElementById('navProfile').textContent = t('navProfile');
   document.getElementById('myTicketsTitle').textContent = t('myTicketsTitle');
   document.getElementById('notifModalTitle').textContent = t('notifTitle');
+  document.getElementById('notifAnnouncementsTitle').textContent = t('announcementsLbl');
   document.getElementById('notifWinnersTitle').textContent = t('latestWinnersLbl');
   document.getElementById('notifTicketsTitle').textContent = t('myTicketsLblNotif');
   if (currentRaffle) renderDetail(currentRaffle);
@@ -152,8 +156,8 @@ document.addEventListener('click', (e)=>{
 });
 
 // ===================== NOTIFICATIONS =====================
-// "Seen" winners are tracked client-side only (by raffle id) so the red
-// dot clears once the buyer has actually opened the panel, without
+// "Seen" winners/announcements are tracked client-side only (by id) so the
+// red dot clears once the buyer has actually opened the panel, without
 // needing a server-side read-receipt for something this low-stakes.
 function getSeenWinnerIds(){
   try{ return JSON.parse(localStorage.getItem('seenWinnerRaffleIds') || '[]'); }catch(e){ return []; }
@@ -161,15 +165,42 @@ function getSeenWinnerIds(){
 function markWinnersSeen(ids){
   localStorage.setItem('seenWinnerRaffleIds', JSON.stringify(ids));
 }
+function getSeenAnnouncementIds(){
+  try{ return JSON.parse(localStorage.getItem('seenAnnouncementIds') || '[]'); }catch(e){ return []; }
+}
+function markAnnouncementsSeen(ids){
+  localStorage.setItem('seenAnnouncementIds', JSON.stringify(ids));
+}
 function endedRafflesWithWinner(){
   return (raffles || [])
     .filter(r => r.status === 'ended' && r.winner)
     .sort((a,b) => new Date(b.winner.drawnAt) - new Date(a.winner.drawnAt));
 }
 function updateNotifDot(){
-  const seen = getSeenWinnerIds();
-  const hasUnseen = endedRafflesWithWinner().some(r => !seen.includes(r.id));
-  document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
+  const seenWinners = getSeenWinnerIds();
+  const hasUnseenWinner = endedRafflesWithWinner().some(r => !seenWinners.includes(r.id));
+  const seenAnn = getSeenAnnouncementIds();
+  const hasUnseenAnn = (announcements || []).some(a => !seenAnn.includes(a.id));
+  document.getElementById('notifDot').style.display = (hasUnseenWinner || hasUnseenAnn) ? 'block' : 'none';
+}
+const ANN_ICON = { winner: '🏆', warning: '⚠️', update: '📢' };
+function renderAnnouncementsSection(){
+  const wrap = document.getElementById('notifAnnouncementsList');
+  if (!wrap) return;
+  if (!announcements || !announcements.length){
+    wrap.innerHTML = `<div class="notif-empty-box">${t('noAnnouncementsLbl')}</div>`;
+    return;
+  }
+  wrap.innerHTML = announcements.slice(0, 20).map(a => `
+    <div class="notif-card" style="align-items:flex-start;">
+      <div class="notif-icon notif-${a.type || 'update'}-icon">${ANN_ICON[a.type] || '📢'}</div>
+      <div class="notif-card-body">
+        <div class="notif-card-title">${esc(a.title)}</div>
+        <div class="notif-card-msg">${esc(a.message)}</div>
+        <div class="notif-card-sub">${new Date(a.createdAt).toLocaleString()}</div>
+      </div>
+    </div>
+  `).join('');
 }
 function renderWinnersSection(){
   const wrap = document.getElementById('notifWinnersList');
@@ -206,6 +237,7 @@ function renderTicketsSection(orders){
   `).join('');
 }
 async function renderNotifPanel(){
+  renderAnnouncementsSection();
   renderWinnersSection();
   const phone = localStorage.getItem('phone') || '';
   const customerId = localStorage.getItem('customerId') || '';
@@ -220,6 +252,7 @@ document.getElementById('notifBtn').addEventListener('click', ()=>{
   renderNotifPanel();
   document.getElementById('notifModalBackdrop').classList.add('show');
   markWinnersSeen(endedRafflesWithWinner().map(r => r.id));
+  markAnnouncementsSeen((announcements || []).map(a => a.id));
   updateNotifDot();
 });
 document.getElementById('notifModalClose').addEventListener('click', ()=>{
@@ -273,6 +306,7 @@ function showToast(msg){
 
 // ===================== HOME =====================
 let raffles = [];
+let announcements = [];
 let currentRaffle = null;
 
 async function loadRaffles(){
@@ -286,6 +320,15 @@ async function loadRaffles(){
     console.error(e);
     showToast('Could not load raffles');
   }
+}
+
+async function loadAnnouncements(){
+  try{
+    const res = await fetch(`${API}/announcements`);
+    const data = await res.json();
+    announcements = data.announcements || [];
+    updateNotifDot();
+  }catch(e){ console.error(e); }
 }
 
 function carHtml(raffle){
@@ -938,7 +981,9 @@ document.getElementById('profileSaveBtn').addEventListener('click', ()=>{
 // ===================== INIT =====================
 applyLang(currentLang);
 loadRaffles();
+loadAnnouncements();
 setInterval(loadRaffles, 30000);
+setInterval(loadAnnouncements, 30000);
 
 // If opened as a Telegram Mini App, ask the backend (via signed initData -
 // see verifyTelegramInitData in server/utils.js) whether this Telegram
