@@ -193,6 +193,17 @@ router.post('/orders', (req, res) => {
   if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
   if (raffle.status !== 'active') return res.status(400).json({ error: 'This raffle is not active' });
 
+  // A banned Telegram account is blocked from creating new orders via its
+  // linked phone number. Checked here rather than only in the bot, since
+  // this endpoint is the one place that actually holds/sells numbers -
+  // phone is client-supplied and unauthenticated at this point, but that's
+  // fine: the check exists to stop the *specific* phone an admin banned,
+  // not to prove identity.
+  if (db.isPhoneBanned(data, phone)) {
+    reportLockout(`banned-order-attempt:${phone}`, `Banned phone ${phone} attempted to create an order from IP ${req.ip}.`);
+    return res.status(403).json({ error: 'This phone number is banned from placing orders. Contact support if you believe this is a mistake.' });
+  }
+
   let qty = parseInt(quantity) || (Array.isArray(numbers) ? numbers.length : 1);
   qty = Math.max(1, Math.min(qty, 20));
 
@@ -553,6 +564,18 @@ router.post('/telegram/prefill', (req, res) => {
     fullName: linked.fullName,
     customerId: customer ? customer.id : null
   });
+});
+
+// ---- Announcements (public, read-only) ----
+// Site-wide messages the admin posts from Admin -> Announcements. No auth
+// needed to read these - they're meant to be visible to every visitor,
+// same as the winner cards already shown in this panel. Capped at 30 so
+// the bell panel doesn't have to paginate; older ones are still in
+// data.json if ever needed, just not returned here.
+router.get('/announcements', (req, res) => {
+  const data = db.load();
+  const list = (data.announcements || []).slice(0, 30);
+  res.json({ announcements: list });
 });
 
 module.exports = router;
