@@ -8,7 +8,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
-const { notifyCustomer } = require('../telegram');
+const { notifyCustomer, sendTelegramMessage } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
@@ -383,9 +383,83 @@ router.get('/telegram-users', (req, res) => {
       username: u.username || null,
       fullName: u.fullName || '',
       phone: u.phone,
-      updatedAt: u.updatedAt
+      updatedAt: u.updatedAt,
+      banned: Boolean(u.banned),
+      bannedAt: u.bannedAt || null,
+      bannedReason: u.bannedReason || null
     }));
   res.json({ total: users.length, users });
+});
+
+// ---- Ban / unban a Telegram user ----
+// Banning blocks that person's linked phone number from creating new
+// orders (see isPhoneBanned in db.js, enforced in routes/public.js POST
+// /orders). It does not touch any order already placed - existing orders
+// still go through their normal awaiting_payment/pending/confirmed flow;
+// an admin who wants to also undo a specific order should reject it
+// separately from the Orders tab.
+router.post('/telegram-users/:telegramId/ban', (req, res) => {
+  const data = db.load();
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 300) : '';
+  const user = db.banTelegramUser(data, req.params.telegramId, reason);
+  if (!user) return res.status(404).json({ error: 'Telegram user not found' });
+  db.save(data);
+  res.json({ ok: true, user });
+});
+
+router.post('/telegram-users/:telegramId/unban', (req, res) => {
+  const data = db.load();
+  const user = db.unbanTelegramUser(data, req.params.telegramId);
+  if (!user) return res.status(404).json({ error: 'Telegram user not found' });
+  db.save(data);
+  res.json({ ok: true, user });
+});
+
+// ---- Announcements (site-wide broadcast, shown under the bell icon) ----
+// General-purpose messaging: winner news, warnings, updates - anything the
+// admin wants every visitor to see. Always saved to data.announcements so
+// it shows in the customer app's notification panel (GET /api/announcements
+// in routes/public.js) regardless of Telegram. Optionally ALSO pushed as a
+// Telegram DM to every user who has linked their phone, for the subset of
+// users who'll actually see a push notification for it rather than having
+// to open the app and check the bell.
+router.get('/announcements', (req, res) => {
+  const data = db.load();
+  res.json({ announcements: data.announcements || [] });
+});
+
+router.post('/announcements', (req, res) => {
+  const { title, message, type, notifyTelegram } = req.body || {};
+  if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+
+  const data = db.load();
+  const announcement = db.createAnnouncement(data, { title, message, type });
+  db.save(data);
+  res.status(201).json({ announcement });
+
+  // Fire-and-forget, same pattern as notifyCustomer call sites elsewhere in
+  // this file: never block the HTTP response on Telegram delivery, and one
+  // blocked/broken recipient must not stop the rest from being messaged.
+  // Skips banned users deliberately - a warning/update isn't meant to
+  // reach someone the admin has already banned.
+  if (notifyTelegram) {
+    const recipients = (data.telegramUsers || []).filter(u => !u.banned);
+    const text = `${announcement.title}\n\n${announcement.message}`;
+    Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
+      .then(results => {
+        const failed = results.filter(r => r.status === 'rejected').length;
+        if (failed) console.warn(`[announcements] ${failed}/${recipients.length} Telegram sends failed for announcement ${announcement.id}`);
+      });
+  }
+});
+
+router.delete('/announcements/:id', (req, res) => {
+  const data = db.load();
+  const removed = db.deleteAnnouncement(data, req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Announcement not found' });
+  db.save(data);
+  res.json({ ok: true });
 });
 
 // ---- Raffles CRUD ----
