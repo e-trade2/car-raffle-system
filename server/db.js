@@ -247,17 +247,29 @@ function isPhoneBanned(data, phone) {
 }
 
 // ---- Announcements (on-site broadcast, shown under the bell icon) ----
-// type is purely a display hint for the customer app (which icon/color to
-// use) - it has no effect on delivery. 'update' is the default for a plain
-// admin message; 'winner' and 'warning' let the frontend style those
-// differently (e.g. a 🏆 vs a ⚠️ icon) without needing separate lists.
-function createAnnouncement(data, { title, message, type }) {
+// type is a display hint for the customer app (which icon/color/layout to
+// use). 'winner' announcements carry extra structured fields (name, phone,
+// lottery, ticket, prize) so the admin can hand-type a rich winner card -
+// same visual format as the automatic one from POST /raffles/:id/draw -
+// without that card being tied to an actual raffle draw. Those fields are
+// simply ignored/omitted for 'update' and 'warning' types.
+function createAnnouncement(data, { title, message, type, winner }) {
+  const isWinner = type === 'winner';
   const announcement = {
     id: nanoid(8),
     title: (title || '').trim(),
     message: (message || '').trim(),
     type: ['winner', 'warning', 'update'].includes(type) ? type : 'update',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(isWinner && winner ? {
+      winner: {
+        name: (winner.name || '').trim(),
+        phone: (winner.phone || '').trim(),
+        lottery: (winner.lottery || '').trim(),
+        ticket: (winner.ticket || '').trim(),
+        prize: (winner.prize || '').trim()
+      }
+    } : {})
   };
   data.announcements.unshift(announcement); // newest first
   return announcement;
