@@ -429,12 +429,21 @@ router.get('/announcements', (req, res) => {
 });
 
 router.post('/announcements', (req, res) => {
-  const { title, message, type, notifyTelegram } = req.body || {};
+  const { title, message, type, notifyTelegram, winner } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+  const isWinner = type === 'winner';
+  // A winner announcement is meaningless without at least a name and a
+  // ticket number - everything else in `winner` (phone, lottery, prize) is
+  // optional so the admin isn't blocked if e.g. the raffle has no subtitle.
+  if (isWinner) {
+    if (!winner || !winner.name || !winner.name.trim()) return res.status(400).json({ error: 'Winner name is required' });
+    if (!winner.ticket || !String(winner.ticket).trim()) return res.status(400).json({ error: 'Winning ticket number is required' });
+  } else if (!message || !message.trim()) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
 
   const data = db.load();
-  const announcement = db.createAnnouncement(data, { title, message, type });
+  const announcement = db.createAnnouncement(data, { title, message, type, winner });
   db.save(data);
   res.status(201).json({ announcement });
 
@@ -445,7 +454,12 @@ router.post('/announcements', (req, res) => {
   // reach someone the admin has already banned.
   if (notifyTelegram) {
     const recipients = (data.telegramUsers || []).filter(u => !u.banned);
-    const text = `${announcement.title}\n\n${announcement.message}`;
+    const text = isWinner
+      ? `${announcement.title}\n\n🏆 ${winner.name} won ticket #${winner.ticket}` +
+        (winner.lottery ? `\nLottery: ${winner.lottery}` : '') +
+        (winner.prize ? `\nPrize: ${winner.prize}` : '') +
+        (announcement.message ? `\n\n${announcement.message}` : '')
+      : `${announcement.title}\n\n${announcement.message}`;
     Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
       .then(results => {
         const failed = results.filter(r => r.status === 'rejected').length;
