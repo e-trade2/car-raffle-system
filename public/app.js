@@ -58,6 +58,7 @@ const TEXT = {
     wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
     legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendReservedLbl:"Reserved", legendFreeLbl:"Free",
     announcementsLbl:"Announcements", noAnnouncementsLbl:"No announcements yet",
+    lotteryLbl:"Lottery", winningTicketLbl:"Winning Ticket", prizeLbl:"Prize",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -82,6 +83,7 @@ const TEXT = {
     wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
     legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendReservedLbl:"የተጠበቀ", legendFreeLbl:"ክፍት",
     announcementsLbl:"ማስታወቂያዎች", noAnnouncementsLbl:"እስካሁን ምንም ማስታወቂያ የለም",
+    lotteryLbl:"ሎተሪ", winningTicketLbl:"አሸናፊ ትኬት", prizeLbl:"ሽልማት",
   },
   om: {
     backLabel:"Deebi'i", cdLabel:"Yeroo Hafe",
@@ -106,6 +108,7 @@ const TEXT = {
     wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
     legendSelectedLbl:"Filatame", legendTakenLbl:"Qabame", legendReservedLbl:"Eegame", legendFreeLbl:"Banaa",
     announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
+    lotteryLbl:"Lootarii", winningTicketLbl:"Tikeetii Injifate", prizeLbl:"Badhaasa",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -209,14 +212,30 @@ function renderWinnersSection(){
     wrap.innerHTML = `<div class="notif-empty-box">${t('noWinnersLbl')}</div>`;
     return;
   }
+  // Deliberately shows only the masked winner name (e.g. "Kebede N.") and
+  // no phone number - this panel is visible to every site visitor, and a
+  // winner's exact phone number isn't something to broadcast publicly.
+  // See maskWinnerName() in server/utils.js for where that masking happens.
   wrap.innerHTML = winners.slice(0, 8).map(r => `
-    <div class="notif-card">
-      <div class="notif-icon notif-winner-icon">🏆</div>
-      <div class="notif-card-body">
-        <div class="notif-card-title">${esc(r.winner.name)} ${t('wonLbl')} ${esc(r.title)}</div>
-        <div class="notif-card-sub">${new Date(r.winner.drawnAt).toLocaleDateString()}</div>
+    <div class="winner-card">
+      <div class="winner-card-head">
+        <div class="winner-card-id">👤 ${esc(r.winner.name)}</div>
+        <div class="winner-card-trophy">🏆</div>
       </div>
-      <div class="notif-card-badge">#${r.winner.number}</div>
+      <div class="winner-card-field">
+        <div class="winner-card-field-label">${t('lotteryLbl')}</div>
+        <div class="winner-card-field-value green">${esc(r.title)}</div>
+      </div>
+      <div class="winner-card-field">
+        <div class="winner-card-field-label">${t('winningTicketLbl')}</div>
+        <div class="winner-card-field-value gold">#${r.winner.number}</div>
+      </div>
+      ${r.subtitle ? `
+      <div class="winner-card-field">
+        <div class="winner-card-field-label">${t('prizeLbl')}</div>
+        <div class="winner-card-field-value">${esc(r.subtitle)}</div>
+      </div>` : ''}
+      <div class="winner-card-time">🕐 ${new Date(r.winner.drawnAt).toLocaleString()}</div>
     </div>
   `).join('');
 }
