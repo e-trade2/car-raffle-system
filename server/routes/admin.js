@@ -8,6 +8,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
+const { notifyCustomer } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
@@ -642,6 +643,17 @@ router.post('/orders/:id/approve', (req, res) => {
   order.confirmedAt = new Date().toISOString();
   db.save(data);
   res.json({ order });
+
+  // Fire-and-forget: never awaited, and notifyCustomer() itself swallows
+  // every failure, so a customer who never linked Telegram (or a Telegram
+  // API hiccup) can't turn a successful approval into an error response.
+  // See server/telegram.js.
+  const ticketWord = order.ticketNumbers.length > 1 ? 'numbers' : 'number';
+  notifyCustomer(data, order,
+    `Your order for "${raffle ? raffle.title : 'your raffle'}" has been approved.\n\n` +
+    `Ticket ${ticketWord}: ${order.ticketNumbers.join(', ')}\n\n` +
+    `Good luck!`
+  );
 });
 
 router.post('/orders/:id/reject', (req, res) => {
@@ -661,6 +673,13 @@ router.post('/orders/:id/reject', (req, res) => {
   order.rejectedAt = new Date().toISOString();
   db.save(data);
   res.json({ order });
+
+  // See the approve handler above for why this is unawaited and unguarded.
+  const reasonLine = order.rejectedReason ? `\n\nReason: ${order.rejectedReason}` : '';
+  notifyCustomer(data, order,
+    `Your order for "${raffle ? raffle.title : 'your raffle'}" was not approved.${reasonLine}\n\n` +
+    `If you think this is a mistake, please get in touch with us.`
+  );
 });
 
 // ---- Undo a mistaken approval ----
@@ -823,6 +842,13 @@ router.post('/raffles/:id/draw', (req, res) => {
   raffle.status = 'ended';
   db.save(data);
   res.json({ winner: raffle.winner });
+
+  // See the approve handler above for why this is unawaited and unguarded.
+  notifyCustomer(data, winner.order,
+    `Congratulations! You won the raffle for "${raffle.title}"!\n\n` +
+    `Winning ticket: #${winner.number}\n\n` +
+    `Our team will be in touch at ${winner.order.phone} with next steps.`
+  );
 });
 
 module.exports = router;
