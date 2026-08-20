@@ -178,7 +178,12 @@ function renderAnnouncements(list){
         <div>
           <div style="font-size:11px;font-weight:700;color:var(--accent-gold);margin-bottom:4px;">${ANN_TYPE_LABEL[a.type] || ANN_TYPE_LABEL.update}</div>
           <div style="font-weight:700;font-size:14px;">${esc(a.title)}</div>
-          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;white-space:pre-wrap;">${esc(a.message)}</div>
+          ${a.winner ? `
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+            ${esc(a.winner.name)}${a.winner.phone ? ' · ' + esc(a.winner.phone) : ''}<br>
+            ${a.winner.lottery ? esc(a.winner.lottery) + ' — ' : ''}Ticket #${esc(a.winner.ticket)}${a.winner.prize ? ' — ' + esc(a.winner.prize) : ''}
+          </div>` : ''}
+          ${a.message ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;white-space:pre-wrap;">${esc(a.message)}</div>` : ''}
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">${new Date(a.createdAt).toLocaleString()}</div>
         </div>
         <button class="btn-red" data-delann="${esc(a.id)}" style="flex:none;">Delete</button>
@@ -195,21 +200,50 @@ function renderAnnouncements(list){
   }));
 }
 
+document.getElementById('annType').addEventListener('change', (e) => {
+  const isWinner = e.target.value === 'winner';
+  document.getElementById('annWinnerFields').style.display = isWinner ? 'block' : 'none';
+  document.getElementById('annMessageField').style.display = isWinner ? 'none' : 'block';
+  document.getElementById('annWinnerNoteField').style.display = isWinner ? 'block' : 'none';
+});
+
 document.getElementById('postAnnBtn').addEventListener('click', async () => {
   const title = document.getElementById('annTitle').value.trim();
-  const message = document.getElementById('annMessage').value.trim();
   const type = document.getElementById('annType').value;
   const notifyTelegram = document.getElementById('annNotifyTelegram').checked;
   const errEl = document.getElementById('annErr');
   showErr(errEl, '');
-  if (!title || !message){ showErr(errEl, 'Title and message are required'); return; }
+
+  if (!title){ showErr(errEl, 'Title is required'); return; }
+
+  let body;
+  if (type === 'winner'){
+    const winner = {
+      name: document.getElementById('annWinnerName').value.trim(),
+      phone: document.getElementById('annWinnerPhone').value.trim(),
+      lottery: document.getElementById('annWinnerLottery').value.trim(),
+      ticket: document.getElementById('annWinnerTicket').value.trim(),
+      prize: document.getElementById('annWinnerPrize').value.trim()
+    };
+    if (!winner.name){ showErr(errEl, 'Winner name is required'); return; }
+    if (!winner.ticket){ showErr(errEl, 'Winning ticket number is required'); return; }
+    body = { title, type, notifyTelegram, winner, message: document.getElementById('annWinnerNote').value.trim() };
+  } else {
+    const message = document.getElementById('annMessage').value.trim();
+    if (!message){ showErr(errEl, 'Message is required'); return; }
+    body = { title, type, notifyTelegram, message };
+  }
+
   try {
-    await api('/announcements', {
-      method: 'POST',
-      body: JSON.stringify({ title, message, type, notifyTelegram })
-    });
+    await api('/announcements', { method: 'POST', body: JSON.stringify(body) });
     document.getElementById('annTitle').value = '';
     document.getElementById('annMessage').value = '';
+    document.getElementById('annWinnerNote').value = '';
+    document.getElementById('annWinnerName').value = '';
+    document.getElementById('annWinnerPhone').value = '';
+    document.getElementById('annWinnerLottery').value = '';
+    document.getElementById('annWinnerTicket').value = '';
+    document.getElementById('annWinnerPrize').value = '';
     document.getElementById('annNotifyTelegram').checked = false;
     loadAnnouncements();
   } catch (e) { showErr(errEl, e.message); }
