@@ -194,7 +194,33 @@ function renderAnnouncementsSection(){
     wrap.innerHTML = `<div class="notif-empty-box">${t('noAnnouncementsLbl')}</div>`;
     return;
   }
-  wrap.innerHTML = announcements.slice(0, 20).map(a => `
+  wrap.innerHTML = announcements.slice(0, 20).map(a => {
+    if (a.type === 'winner' && a.winner){
+      return `
+      <div class="winner-card">
+        <div class="winner-card-head">
+          <div class="winner-card-id">👤 ${esc(a.winner.name)}${a.winner.phone ? ` · ${esc(a.winner.phone)}` : ''}</div>
+          <div class="winner-card-trophy">🏆</div>
+        </div>
+        ${a.winner.lottery ? `
+        <div class="winner-card-field">
+          <div class="winner-card-field-label">${t('lotteryLbl')}</div>
+          <div class="winner-card-field-value green">${esc(a.winner.lottery)}</div>
+        </div>` : ''}
+        <div class="winner-card-field">
+          <div class="winner-card-field-label">${t('winningTicketLbl')}</div>
+          <div class="winner-card-field-value gold">#${esc(a.winner.ticket)}</div>
+        </div>
+        ${a.winner.prize ? `
+        <div class="winner-card-field">
+          <div class="winner-card-field-label">${t('prizeLbl')}</div>
+          <div class="winner-card-field-value">${esc(a.winner.prize)}</div>
+        </div>` : ''}
+        ${a.message ? `<div class="notif-card-msg" style="margin-top:10px;">${esc(a.message)}</div>` : ''}
+        <div class="winner-card-time">🕐 ${new Date(a.createdAt).toLocaleString()}</div>
+      </div>`;
+    }
+    return `
     <div class="notif-card" style="align-items:flex-start;">
       <div class="notif-icon notif-${a.type || 'update'}-icon">${ANN_ICON[a.type] || '📢'}</div>
       <div class="notif-card-body">
@@ -202,8 +228,8 @@ function renderAnnouncementsSection(){
         <div class="notif-card-msg">${esc(a.message)}</div>
         <div class="notif-card-sub">${new Date(a.createdAt).toLocaleString()}</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 function renderWinnersSection(){
   const wrap = document.getElementById('notifWinnersList');
