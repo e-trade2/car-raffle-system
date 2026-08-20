@@ -218,10 +218,29 @@
           </select>
         </div>
       </div>
-      <div style="margin-bottom:12px;">
+
+      <div id="annWinnerFields" style="display:none;">
+        <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 10px;">These fields are shown publicly on the site, exactly as entered — double check before posting.</p>
+        <div class="grid2">
+          <div><label>Winner Name</label><input type="text" id="annWinnerName" placeholder="e.g. Kebede Nimani"></div>
+          <div><label>Phone (optional)</label><input type="text" id="annWinnerPhone" placeholder="e.g. 251994372781"></div>
+        </div>
+        <div class="grid2">
+          <div><label>Lottery</label><input type="text" id="annWinnerLottery" placeholder="e.g. Gech EV Makina Ekub"></div>
+          <div><label>Winning Ticket</label><input type="text" id="annWinnerTicket" placeholder="e.g. 3349"></div>
+        </div>
+        <div><label>Prize (optional)</label><input type="text" id="annWinnerPrize" placeholder="e.g. BYD Yuan UP"></div>
+      </div>
+
+      <div id="annMessageField" style="margin-bottom:12px;">
         <label>Message</label>
         <textarea id="annMessage" rows="4" placeholder="Write the announcement..." style="width:100%;resize:vertical;"></textarea>
       </div>
+      <div id="annWinnerNoteField" style="display:none;margin-bottom:12px;">
+        <label>Extra Note (optional)</label>
+        <textarea id="annWinnerNote" rows="2" placeholder="Anything extra to add below the winner card..." style="width:100%;resize:vertical;"></textarea>
+      </div>
+
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13px;margin-bottom:12px;">
         <input type="checkbox" id="annNotifyTelegram" style="width:auto;">
         Also send as a Telegram DM to everyone who has linked their phone
