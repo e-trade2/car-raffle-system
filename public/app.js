@@ -133,7 +133,6 @@ function applyLang(lang){
   document.getElementById('myTicketsTitle').textContent = t('myTicketsTitle');
   document.getElementById('notifModalTitle').textContent = t('notifTitle');
   document.getElementById('notifAnnouncementsTitle').textContent = t('announcementsLbl');
-  document.getElementById('notifWinnersTitle').textContent = t('latestWinnersLbl');
   document.getElementById('notifTicketsTitle').textContent = t('myTicketsLblNotif');
   if (currentRaffle) renderDetail(currentRaffle);
   renderHomeList();
@@ -162,29 +161,16 @@ document.addEventListener('click', (e)=>{
 // "Seen" winners/announcements are tracked client-side only (by id) so the
 // red dot clears once the buyer has actually opened the panel, without
 // needing a server-side read-receipt for something this low-stakes.
-function getSeenWinnerIds(){
-  try{ return JSON.parse(localStorage.getItem('seenWinnerRaffleIds') || '[]'); }catch(e){ return []; }
-}
-function markWinnersSeen(ids){
-  localStorage.setItem('seenWinnerRaffleIds', JSON.stringify(ids));
-}
 function getSeenAnnouncementIds(){
   try{ return JSON.parse(localStorage.getItem('seenAnnouncementIds') || '[]'); }catch(e){ return []; }
 }
 function markAnnouncementsSeen(ids){
   localStorage.setItem('seenAnnouncementIds', JSON.stringify(ids));
 }
-function endedRafflesWithWinner(){
-  return (raffles || [])
-    .filter(r => r.status === 'ended' && r.winner)
-    .sort((a,b) => new Date(b.winner.drawnAt) - new Date(a.winner.drawnAt));
-}
 function updateNotifDot(){
-  const seenWinners = getSeenWinnerIds();
-  const hasUnseenWinner = endedRafflesWithWinner().some(r => !seenWinners.includes(r.id));
   const seenAnn = getSeenAnnouncementIds();
   const hasUnseenAnn = (announcements || []).some(a => !seenAnn.includes(a.id));
-  document.getElementById('notifDot').style.display = (hasUnseenWinner || hasUnseenAnn) ? 'block' : 'none';
+  document.getElementById('notifDot').style.display = hasUnseenAnn ? 'block' : 'none';
 }
 const ANN_ICON = { winner: '🏆', warning: '⚠️', update: '📢' };
 function renderAnnouncementsSection(){
@@ -231,40 +217,6 @@ function renderAnnouncementsSection(){
     </div>`;
   }).join('');
 }
-function renderWinnersSection(){
-  const wrap = document.getElementById('notifWinnersList');
-  const winners = endedRafflesWithWinner();
-  if (!winners.length){
-    wrap.innerHTML = `<div class="notif-empty-box">${t('noWinnersLbl')}</div>`;
-    return;
-  }
-  // Deliberately shows only the masked winner name (e.g. "Kebede N.") and
-  // no phone number - this panel is visible to every site visitor, and a
-  // winner's exact phone number isn't something to broadcast publicly.
-  // See maskWinnerName() in server/utils.js for where that masking happens.
-  wrap.innerHTML = winners.slice(0, 8).map(r => `
-    <div class="winner-card">
-      <div class="winner-card-head">
-        <div class="winner-card-id">👤 ${esc(r.winner.name)}</div>
-        <div class="winner-card-trophy">🏆</div>
-      </div>
-      <div class="winner-card-field">
-        <div class="winner-card-field-label">${t('lotteryLbl')}</div>
-        <div class="winner-card-field-value green">${esc(r.title)}</div>
-      </div>
-      <div class="winner-card-field">
-        <div class="winner-card-field-label">${t('winningTicketLbl')}</div>
-        <div class="winner-card-field-value gold">#${r.winner.number}</div>
-      </div>
-      ${r.subtitle ? `
-      <div class="winner-card-field">
-        <div class="winner-card-field-label">${t('prizeLbl')}</div>
-        <div class="winner-card-field-value">${esc(r.subtitle)}</div>
-      </div>` : ''}
-      <div class="winner-card-time">🕐 ${new Date(r.winner.drawnAt).toLocaleString()}</div>
-    </div>
-  `).join('');
-}
 function renderTicketsSection(orders){
   const wrap = document.getElementById('notifTicketsList');
   if (!orders || !orders.length){
@@ -283,7 +235,6 @@ function renderTicketsSection(orders){
 }
 async function renderNotifPanel(){
   renderAnnouncementsSection();
-  renderWinnersSection();
   const phone = localStorage.getItem('phone') || '';
   const customerId = localStorage.getItem('customerId') || '';
   if (!phone || !customerId){ renderTicketsSection([]); return; }
@@ -296,7 +247,6 @@ async function renderNotifPanel(){
 document.getElementById('notifBtn').addEventListener('click', ()=>{
   renderNotifPanel();
   document.getElementById('notifModalBackdrop').classList.add('show');
-  markWinnersSeen(endedRafflesWithWinner().map(r => r.id));
   markAnnouncementsSeen((announcements || []).map(a => a.id));
   updateNotifDot();
 });
