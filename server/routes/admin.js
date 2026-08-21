@@ -6,7 +6,7 @@ const fs = require('fs');
 const { randomInt, randomBytes, createHash, timingSafeEqual } = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers } = require('../utils');
+const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers, maskWinnerName } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
 const { notifyCustomer, sendTelegramMessage } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
@@ -455,10 +455,12 @@ router.post('/announcements', (req, res) => {
   if (notifyTelegram) {
     const recipients = (data.telegramUsers || []).filter(u => !u.banned);
     const text = isWinner
-      ? `${announcement.title}\n\n🏆 ${winner.name} won ticket #${winner.ticket}` +
-        (winner.lottery ? `\nLottery: ${winner.lottery}` : '') +
-        (winner.prize ? `\nPrize: ${winner.prize}` : '') +
-        (announcement.message ? `\n\n${announcement.message}` : '')
+      ? `🏆 ${announcement.title}\n\n` +
+        `Winner: ${winner.name}${winner.phone ? ` (${winner.phone})` : ''}\n` +
+        (winner.lottery ? `Lottery: ${winner.lottery}\n` : '') +
+        `Winning ticket: #${winner.ticket}\n` +
+        (winner.prize ? `Prize: ${winner.prize}\n` : '') +
+        (announcement.message ? `\n${announcement.message}` : '')
       : `${announcement.title}\n\n${announcement.message}`;
     Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
       .then(results => {
@@ -928,14 +930,37 @@ router.post('/raffles/:id/draw', (req, res) => {
   const winner = pool[randomInt(0, pool.length)];
   raffle.winner = { number: winner.number, orderId: winner.order.id, fullName: winner.order.fullName, phone: winner.order.phone, drawnAt: new Date().toISOString() };
   raffle.status = 'ended';
+
+  // Auto-draws feed into the same Announcements list a manually-typed
+  // winner card would (see POST /announcements above) - this is the ONLY
+  // on-site place a winner is shown now; there's no separate "Latest
+  // Winners" list anymore. Uses maskWinnerName/no-phone by default since
+  // this fires without any admin review, unlike a manual winner
+  // announcement where the admin explicitly typed (and can choose to
+  // publish) real contact details.
+  db.createAnnouncement(data, {
+    title: `Winner drawn: ${raffle.title}`,
+    type: 'winner',
+    winner: {
+      name: maskWinnerName(winner.order.fullName),
+      phone: '',
+      lottery: raffle.title,
+      ticket: String(winner.number),
+      prize: raffle.subtitle || ''
+    }
+  });
+
   db.save(data);
   res.json({ winner: raffle.winner });
 
   // See the approve handler above for why this is unawaited and unguarded.
   notifyCustomer(data, winner.order,
-    `Congratulations! You won the raffle for "${raffle.title}"!\n\n` +
-    `Winning ticket: #${winner.number}\n\n` +
-    `Our team will be in touch at ${winner.order.phone} with next steps.`
+    `🏆 Congratulations! You won the raffle!\n\n` +
+    `Lottery: ${raffle.title}\n` +
+    `Winning ticket: #${winner.number}\n` +
+    (raffle.subtitle ? `Prize: ${raffle.subtitle}\n` : '') +
+    `Phone on file: ${winner.order.phone}\n\n` +
+    `Our team will be in touch with next steps.`
   );
 });
 
