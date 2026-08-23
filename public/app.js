@@ -371,7 +371,7 @@ function raffleCardHtml(raffle, idx){
             <div class="p-icon">👥</div>
             <div><div class="p-lbl">${t('participantsLbl')}</div><div class="p-num">${raffle.soldCount.toLocaleString()}</div></div>
           </div>
-          <div class="step-wrap"><span class="step-badge step-4">4</span><button class="buy-ticket-btn" data-open-detail="${raffle.id}">${t('buyTicket')}</button></div>
+          <button class="buy-ticket-btn" data-open-detail="${raffle.id}"><span class="step-badge step-4">4</span><span>${t('buyTicket')}</span></button>
         </div>
       </div>
     </div>
@@ -450,7 +450,7 @@ function renderDetail(raffle){
         <span>${t('selectedNumsLbl')}</span>
         <div class="selected-chips" id="selectedChips"></div>
       </div>
-      <div class="step-wrap step-wrap-block"><span class="step-badge step-5">5</span><button class="btn btn-outline-pink" id="pickNumbersBtn">🎯 <span>${t('pickLabel')}</span></button></div>
+      <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span>🎯 <span>${t('pickLabel')}</span></button>
       <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
     </div>
   `;
@@ -633,7 +633,7 @@ function renderCheckoutStep1(){
     <div class="field"><label>${t('fullNameLbl')}</label><input type="text" id="checkoutFullName" placeholder="${t('fullNameLbl')}" value="${esc(localStorage.getItem('fullName')||'')}"></div>
     <div class="field"><label>${t('phoneLbl')}</label><input type="tel" id="checkoutPhone" placeholder="e.g. 251912345678" value="${esc(localStorage.getItem('phone')||'')}"></div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<div class="step-wrap step-wrap-block"><span class="step-badge step-6">6</span><button class="btn btn-gold" id="checkoutStep1Next">${t('continueLbl')} →</button></div>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-6">6</span><span class="btn-label">${t('continueLbl')} →</span></button>`;
   document.getElementById('checkoutStep1Next').addEventListener('click', submitStep1);
 }
 
@@ -650,7 +650,8 @@ async function submitStep1(){
   localStorage.setItem('phone', phone);
 
   const btn = document.getElementById('checkoutStep1Next');
-  btn.disabled = true; btn.textContent = '...';
+  const btnLabel = btn.querySelector('.btn-label');
+  btn.disabled = true; btnLabel.textContent = '...';
   try{
     const res = await fetch(`${API}/orders`, {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -661,13 +662,13 @@ async function submitStep1(){
       })
     });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not create order'); btn.disabled=false; btn.textContent = t('continueLbl')+' →'; return; }
+    if (!res.ok){ showToast(data.error || 'Could not create order'); btn.disabled=false; btnLabel.textContent = t('continueLbl')+' →'; return; }
     checkoutOrder = data.order;
     localStorage.setItem('customerId', checkoutOrder.customerId);
     renderCheckoutStep2(data.banks);
     setStepBars(2);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btn.textContent = t('continueLbl')+' →';
+    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent = t('continueLbl')+' →';
   }
 }
 
@@ -694,12 +695,13 @@ function renderCheckoutStep2(banks){
         </div>`).join('')}
     </div>
     <div class="upload-box" id="uploadBox">
-      <div id="uploadHintText">${t('uploadHint')}</div>
+      <div class="upload-icon" id="uploadIcon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 15V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 8l5-5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 16v2a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div id="uploadHintText" class="upload-hint-text">${t('uploadHint')}</div>
       <img id="uploadPreview" class="upload-preview" style="display:none;">
     </div>
     <input type="file" id="receiptInput" accept="image/*" style="display:none;">
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<div class="step-wrap step-wrap-block"><span class="step-badge step-7">7</span><button class="btn btn-gold" id="checkoutStep2Next">${t('submitPaymentLbl')} →</button></div>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-7">7</span><span class="btn-label">${t('submitPaymentLbl')} →</span></button>`;
 
   document.querySelectorAll('.bank-card').forEach(card=>{
     card.addEventListener('click', ()=>{
@@ -735,6 +737,7 @@ function renderCheckoutStep2(banks){
     if (!file) return;
     receiptFile = file;
     uploadBox.classList.add('has-file');
+    document.getElementById('uploadIcon').innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     document.getElementById('uploadHintText').textContent = file.name;
     const reader = new FileReader();
     reader.onload = e=>{
@@ -749,19 +752,20 @@ function renderCheckoutStep2(banks){
 async function submitStep2(){
   if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
   const btn = document.getElementById('checkoutStep2Next');
-  btn.disabled = true; btn.textContent = '...';
+  const btnLabel = btn.querySelector('.btn-label');
+  btn.disabled = true; btnLabel.textContent = '...';
   try{
     const fd = new FormData();
     fd.append('receipt', receiptFile);
     if (selectedBankId) fd.append('bankId', selectedBankId);
     const res = await fetch(`${API}/orders/${checkoutOrder.id}/payment`, { method:'POST', body: fd });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btn.textContent=t('submitPaymentLbl')+' →'; return; }
+    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btnLabel.textContent=t('submitPaymentLbl')+' →'; return; }
     checkoutOrder = data.order;
     renderCheckoutStep3();
     setStepBars(3);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btn.textContent=t('submitPaymentLbl')+' →';
+    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent=t('submitPaymentLbl')+' →';
   }
 }
 
@@ -777,7 +781,7 @@ function renderCheckoutStep3(){
       <div style="color:var(--text-tertiary);font-size:11.5px;margin-top:6px;">Save this ID - you'll need it with your phone number to look up your tickets later.</div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<div class="step-wrap step-wrap-block"><span class="step-badge step-8">8</span><button class="btn btn-outline" id="checkoutDone">Done</button></div>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span class="step-badge step-8">8</span><span>Done</span></button>`;
   document.getElementById('checkoutDone').addEventListener('click', ()=>{
     document.getElementById('checkoutModalBackdrop').classList.remove('show');
     selectedNumbers = [];
