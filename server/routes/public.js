@@ -229,6 +229,32 @@ router.post('/orders', (req, res) => {
       }
     }
     selected = normalized;
+  } else if (mode === 'mixed') {
+    // Buyer picked some numbers manually, then hit Quick Pick to fill the
+    // rest at random - e.g. picked 3 of their own, let Quick Pick assign
+    // the other 7. `numbers` here is the partial manual selection (can be
+    // empty), validated the same way as a full manual pick.
+    const manualNums = Array.isArray(numbers) ? numbers.map(n => Number.parseInt(n, 10)) : [];
+    if (manualNums.some(n => !Number.isInteger(n) || n < 1 || n > raffle.totalNumbers)) {
+      return res.status(400).json({ error: 'Selected numbers are invalid' });
+    }
+    if (new Set(manualNums).size !== manualNums.length) {
+      return res.status(400).json({ error: 'Duplicate numbers in selection' });
+    }
+    if (manualNums.length > qty) {
+      return res.status(400).json({ error: 'Selected numbers exceed quantity' });
+    }
+    for (const n of manualNums) {
+      if (numberStatus(raffle, n) !== 'available') {
+        return res.status(409).json({ error: `Number ${n} is no longer available`, conflict: n });
+      }
+    }
+    const remaining = qty - manualNums.length;
+    const extra = remaining > 0 ? randomAvailableNumbers(raffle, remaining, manualNums) : [];
+    if (extra.length < remaining) {
+      return res.status(409).json({ error: 'Not enough tickets remaining' });
+    }
+    selected = [...manualNums, ...extra];
   } else {
     selected = randomAvailableNumbers(raffle, qty);
     if (selected.length < qty) {
@@ -289,7 +315,16 @@ router.post('/orders/:id/payment', (req, res, next) => {
     if (req.file) fs.unlink(req.file.path, () => {});
     return res.status(400).json({ error: `Order is not awaiting payment (status: ${order.status})` });
   }
-  if (!req.file) return res.status(400).json({ error: 'Payment receipt image is required' });
+  // The client no longer collects a receipt image, so this is optional now.
+  // If a caller does still send one (e.g. an older client build), keep
+  // storing it - otherwise just finalize the order without one.
+  if (!req.file) {
+    order.bankSelected = req.body.bankId || null;
+    order.status = 'pending'; // now awaiting admin approval
+    order.submittedAt = new Date().toISOString();
+    db.save(data);
+    return res.json({ order });
+  }
 
   // fileFilter only ever saw the client-declared Content-Type for this part,
   // which a non-browser client can set to anything - confirm the bytes
