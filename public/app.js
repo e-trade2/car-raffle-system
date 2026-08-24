@@ -73,7 +73,7 @@ const TEXT = {
     fillNameMsg:"Please enter your full name",
     fillPhoneMsg:"Please enter your phone number",
     stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
-    ticketsLbl:"Tickets", ticketNumbersLbl:"Ticket Numbers", totalLbl:"Total",
+    ticketsLbl:"Tickets", ticketNumbersLbl:"Ticket Numbers", totalLbl:"Total", itemLbl:"Item",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
     senderAccountLbl:"Sent from account number (optional)",
@@ -112,7 +112,7 @@ const TEXT = {
     fillNameMsg:"እባክዎ ሙሉ ስምዎን ያስገቡ",
     fillPhoneMsg:"እባክዎ ስልክ ቁጥርዎን ያስገቡ",
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
-    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ",
+    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ", itemLbl:"ዕቃ",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
     senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
@@ -151,7 +151,7 @@ const TEXT = {
     fillNameMsg:"Maaloo maqaa keessan guutuu galchaa",
     fillPhoneMsg:"Maaloo lakkoofsa bilbilaa keessan galchaa",
     stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
-    ticketsLbl:"Tiketeewwan", ticketNumbersLbl:"Lakkoofsa Tiketii", totalLbl:"Waliigala",
+    ticketsLbl:"Tiketeewwan", ticketNumbersLbl:"Lakkoofsa Tiketii", totalLbl:"Waliigala", itemLbl:"Meeshaa",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Suura ragaa fe'uuf tuqi",
     senderAccountLbl:"Herrega irraa erge (filatamaa)",
@@ -990,9 +990,11 @@ function renderCheckoutReview(banks){
   const receiptUrl = receiptFile ? URL.createObjectURL(receiptFile) : '';
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
-      <div style="font-weight:700;margin-bottom:10px;">${esc(checkoutSummaryTitle(currentRaffle))}</div>
+      <div class="summary-title">${t('orderReviewTitle')}</div>
+      <div class="summary-row"><span>${t('itemLbl')}</span><b>${esc(checkoutSummaryTitle(currentRaffle))}</b></div>
       <div class="summary-row"><span>${t('ticketsLbl')}</span><b>${checkoutOrder.quantity} × ${checkoutOrder.unitPrice.toLocaleString()} Birr</b></div>
-      <div class="summary-row"><span>${t('ticketNumbersLbl')}</span><b>#${checkoutOrder.ticketNumbers.join(', #')}</b></div>
+      <div class="summary-row summary-row-stacked"><span>${t('ticketNumbersLbl')}</span></div>
+      <div class="ticket-numbers-wrap">${checkoutOrder.ticketNumbers.map(n=>`<span class="ticket-num-chip">#${n}</span>`).join('')}</div>
       <div class="summary-row"><span>${t('fullNameLbl')}</span><b>${esc(checkoutOrder.fullName)}</b></div>
       <div class="summary-row"><span>${t('phoneLbl')}</span><b>${esc(checkoutOrder.phone)}</b></div>
       ${bank ? `<div class="summary-row"><span>${t('bankLbl')}</span><b>${esc(bank.name)}</b></div>` : ''}
