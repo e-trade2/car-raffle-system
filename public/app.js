@@ -73,6 +73,8 @@ const TEXT = {
     stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
+    senderAccountLbl:"Sent from account number (optional)",
+    senderAccountPlaceholder:"Account you sent money from",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
     ticketNo:"Ticket #", banksLbl:"Select bank to view account (optional)",
     notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
@@ -107,6 +109,8 @@ const TEXT = {
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
+    senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
+    senderAccountPlaceholder:"ገንዘብ የላኩበት ሂሳብ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
     ticketNo:"ትኬት ቁ.", banksLbl:"ክፍያ ለመላክ የባንክ ሂሳብ ይምረጡ",
     notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
@@ -141,6 +145,8 @@ const TEXT = {
     stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Suura ragaa fe'uuf tuqi",
+    senderAccountLbl:"Herrega irraa erge (filatamaa)",
+    senderAccountPlaceholder:"Herrega maallaqa irraa ergitan",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
     ticketNo:"Lakk. Tikeetii", banksLbl:"Kaffaltii dabarsuuf herrega baankii fili",
     notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
@@ -882,8 +888,23 @@ function renderCheckoutStep2(banks){
       <div id="uploadSenderTag" class="upload-sender-tag" style="display:none;"></div>
     </div>
     <input type="file" id="receiptInput" accept="image/*" style="display:none;">
+    <div class="field" style="margin-top:14px;">
+      <label>${t('senderAccountLbl')}</label>
+      <div class="field-input-wrap">
+        <input type="text" id="senderAccountInput" placeholder="${t('senderAccountPlaceholder')}" value="">
+      </div>
+    </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-9">9</span><span class="btn-label">${t('submitPaymentLbl')} →</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `
+    <div class="btn-row">
+      <button class="btn btn-outline" id="checkoutStep2Back"><span>${t('backLabel')}</span></button>
+      <button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-9">9</span><span class="btn-label">${t('continueLbl')}</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+  `;
+  document.getElementById('checkoutStep2Back').addEventListener('click', ()=>{
+    renderCheckoutStep1();
+    setStepBars(1);
+  });
 
   document.querySelectorAll('.bank-card').forEach(card=>{
     card.addEventListener('click', ()=>{
@@ -944,14 +965,16 @@ async function submitStep2(){
     const fd = new FormData();
     fd.append('receipt', receiptFile);
     if (selectedBankId) fd.append('bankId', selectedBankId);
+    const senderAccount = document.getElementById('senderAccountInput').value.trim();
+    if (senderAccount) fd.append('senderAccount', senderAccount);
     const res = await fetch(`${API}/orders/${checkoutOrder.id}/payment`, { method:'POST', body: fd });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btnLabel.textContent=t('submitPaymentLbl')+' →'; return; }
+    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btnLabel.textContent=t('continueLbl'); return; }
     checkoutOrder = data.order;
     renderCheckoutStep3();
     setStepBars(3);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent=t('submitPaymentLbl')+' →';
+    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent=t('continueLbl');
   }
 }
 
