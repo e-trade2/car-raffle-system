@@ -315,16 +315,7 @@ router.post('/orders/:id/payment', (req, res, next) => {
     if (req.file) fs.unlink(req.file.path, () => {});
     return res.status(400).json({ error: `Order is not awaiting payment (status: ${order.status})` });
   }
-  // The client no longer collects a receipt image, so this is optional now.
-  // If a caller does still send one (e.g. an older client build), keep
-  // storing it - otherwise just finalize the order without one.
-  if (!req.file) {
-    order.bankSelected = req.body.bankId || null;
-    order.status = 'pending'; // now awaiting admin approval
-    order.submittedAt = new Date().toISOString();
-    db.save(data);
-    return res.json({ order });
-  }
+  if (!req.file) return res.status(400).json({ error: 'Payment receipt image is required' });
 
   // fileFilter only ever saw the client-declared Content-Type for this part,
   // which a non-browser client can set to anything - confirm the bytes
