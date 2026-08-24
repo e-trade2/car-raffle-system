@@ -543,7 +543,7 @@ function renderDetail(raffle){
       </div>
       <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span>🎯 <span>${t('pickLabel')}</span></button>
       <div class="btn-row">
-        <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
+        <button class="btn btn-gold" id="buyNowBtn"><span class="step-badge step-7">7</span>⚡ <span>${t('buyLabel')}</span></button>
         <button class="btn btn-green" id="manualSelectBtn"><span>${t('selectBtnLabel')}</span></button>
       </div>
     </div>
@@ -564,7 +564,7 @@ function renderDetail(raffle){
     updateManualSelectBtn();
   });
   document.getElementById('pickNumbersBtn').addEventListener('click', ()=> openNumberPicker());
-  document.getElementById('buyNowBtn').addEventListener('click', ()=> startCheckout('random'));
+  document.getElementById('buyNowBtn').addEventListener('click', ()=> startCheckout(selectedNumbers.length ? 'mixed' : 'random'));
   document.getElementById('manualSelectBtn').addEventListener('click', ()=>{
     if (selectedNumbers.length !== qty){
       showToast(`Please select ${qty} number(s) first`);
@@ -727,15 +727,10 @@ function startCheckout(mode){
     showToast(`Please select ${qty} number(s) first`);
     return;
   }
-  // A manual pick that was confirmed but then abandoned (checkout modal
-  // closed before finishing) leaves selectedNumbers populated. If the buyer
-  // then hits "Buy Now (random)", that stale array must not leak into this
-  // random order - otherwise the step-1 summary displays the old manual
-  // numbers while the server actually assigns different random ones.
-  if (mode === 'random' && selectedNumbers.length){
-    selectedNumbers = [];
-    renderSelectedChips();
-  }
+  // 'random' only happens with zero manual picks (see buyNowBtn handler),
+  // so there's nothing stale to clear here. A manual pick that's still
+  // selected when Quick Pick is hit becomes 'mixed': those numbers are kept
+  // and the server fills the remaining slots at random around them.
   selectedBankId = null;
   receiptFile = null;
   checkoutOrder = null;
@@ -762,7 +757,9 @@ function renderCheckoutStep1(){
       <div style="font-weight:700;margin-bottom:4px;">${esc(currentRaffle.title)}</div>
       <div class="summary-row"><span>${qty} ${t('ticketsUnitLbl')} × ${currentRaffle.price.toLocaleString()} Birr</span></div>
       <div class="summary-total">${total.toLocaleString()} Birr</div>
-      ${checkoutMode === 'manual' && selectedNumbers.length ? `<div class="order-id-chip">#${selectedNumbers.join(', #')}</div>` : `<div class="order-id-chip">Random numbers will be assigned</div>`}
+      ${checkoutMode === 'manual' && selectedNumbers.length ? `<div class="order-id-chip">#${selectedNumbers.join(', #')}</div>` : ''}
+      ${checkoutMode === 'mixed' && selectedNumbers.length ? `<div class="order-id-chip">#${selectedNumbers.join(', #')} + ${qty - selectedNumbers.length} random</div>` : ''}
+      ${checkoutMode === 'random' ? `<div class="order-id-chip">Random numbers will be assigned</div>` : ''}
     </div>
     <div class="field">
       <label>${t('fullNameLbl')}</label>
@@ -803,7 +800,7 @@ async function submitStep1(){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         raffleId: currentRaffle.id, quantity: qty,
-        numbers: checkoutMode === 'manual' ? selectedNumbers : undefined,
+        numbers: (checkoutMode === 'manual' || checkoutMode === 'mixed') ? selectedNumbers : undefined,
         mode: checkoutMode, fullName, phone
       })
     });
