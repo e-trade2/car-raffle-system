@@ -270,7 +270,7 @@ function renderOrders(orders){
       <td>${esc(o.fullName)}<br><span style="color:var(--text-tertiary);font-size:11px;">${esc(o.phone)}</span></td>
       <td>${o.ticketNumbers.map(n=>'#'+n).join(', ')}</td>
       <td>${o.total.toLocaleString()} Birr</td>
-      <td>${o.receiptPath ? `<span class="receipt-link" data-receipt-id="${esc(o.id)}">View</span>` : '—'}</td>
+      <td>${o.receiptPath ? `<span class="receipt-link" data-receipt-id="${esc(o.id)}">View</span>` : '—'}${o.senderAccount ? `<br><span style="color:var(--text-tertiary);font-size:11px;">From: ${esc(o.senderAccount)}</span>` : ''}</td>
       <td><span class="badge ${esc(o.status)}">${esc(o.status.replace('_',' '))}</span></td>
       <td>
         <div class="row-actions">
