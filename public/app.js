@@ -942,17 +942,6 @@ document.getElementById('checkoutModalClose').addEventListener('click', ()=>{
   document.getElementById('checkoutModalBackdrop').classList.remove('show');
 });
 
-// wire "select manually then buy" — after confirming numbers, buyNowBtn does random;
-// picking numbers then pressing pick again shows chips; add a dedicated buy-with-selection path:
-document.addEventListener('click', (e)=>{
-  if (e.target.closest('#numberModalConfirm')){
-    // if selection complete, auto-trigger checkout with manual mode after a short delay
-    if (selectedNumbers.length === qty){
-      setTimeout(()=> startCheckout('manual'), 150);
-    }
-  }
-});
-
 // ===================== TICKETS =====================
 async function searchTickets(phone, customerId){
   if (!phone){ showToast('Enter a phone number'); return; }
