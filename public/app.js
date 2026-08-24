@@ -581,6 +581,11 @@ function updateManualSelectBtn(){
   if (!btn) return;
   const ready = selectedNumbers.length && selectedNumbers.length === qty;
   btn.classList.toggle('ready', !!ready);
+  // The "7" step badge only appears once numbers are actually selected and
+  // the button is ready to buy - not while it's still an inactive prompt.
+  btn.innerHTML = ready
+    ? `<span class="step-badge step-7">7</span><span>${t('selectBtnLabel')}</span>`
+    : `<span>${t('selectBtnLabel')}</span>`;
 }
 
 function renderSelectedChips(){
@@ -774,7 +779,7 @@ function renderCheckoutStep1(){
       </div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-6">6</span><span class="btn-label">${t('continueLbl')}</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-8">8</span><span class="btn-label">${t('continueLbl')}</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   document.getElementById('checkoutStep1Next').addEventListener('click', submitStep1);
 }
 
@@ -842,7 +847,7 @@ function renderCheckoutStep2(banks){
     </div>
     <input type="file" id="receiptInput" accept="image/*" style="display:none;">
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-7">7</span><span class="btn-label">${t('submitPaymentLbl')} →</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-9">9</span><span class="btn-label">${t('submitPaymentLbl')} →</span></button>`;
 
   document.querySelectorAll('.bank-card').forEach(card=>{
     card.addEventListener('click', ()=>{
@@ -922,7 +927,7 @@ function renderCheckoutStep3(){
       <div style="color:var(--text-tertiary);font-size:11.5px;margin-top:6px;">Save this ID - you'll need it with your phone number to look up your tickets later.</div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span class="step-badge step-8">8</span><span>Done</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span class="step-badge step-10">10</span><span>Done</span></button>`;
   document.getElementById('checkoutDone').addEventListener('click', ()=>{
     document.getElementById('checkoutModalBackdrop').classList.remove('show');
     selectedNumbers = [];
