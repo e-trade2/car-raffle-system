@@ -64,7 +64,9 @@ const TEXT = {
     toastSoon:"Coming soon", toastPicked:"numbers selected",
     confirmSelection:"Confirm Selection", selectNumberLbl:"Select Number", doneLbl:"Done",
     orderConfirmTitle:"Confirm your order", orderPaymentTitle:"Payment",
-    orderStatusTitle:"Order submitted",
+    orderStatusTitle:"Order submitted", orderReviewTitle:"Review Order",
+    bankLbl:"Bank", submitOrderLbl:"Submit Order",
+    reviewNoteMsg:"Your tickets will be reviewed and confirmed within 24 hours.",
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
     fullNamePlaceholder:"Enter your full name",
     fillNamePhoneMsg:"Please fill in your name and phone number",
@@ -100,7 +102,9 @@ const TEXT = {
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
     confirmSelection:"ምርጫ አረጋግጥ", selectNumberLbl:"ቁጥር ምረጥ", doneLbl:"ተጠናቋል",
     orderConfirmTitle:"ትዕዛዝዎን ያረጋግጡ", orderPaymentTitle:"ክፍያ",
-    orderStatusTitle:"ትዕዛዝ ገብቷል",
+    orderStatusTitle:"ትዕዛዝ ገብቷል", orderReviewTitle:"የትዕዛዝ ማጠቃለያ",
+    bankLbl:"ባንክ", submitOrderLbl:"ትዕዛዝ ላክ",
+    reviewNoteMsg:"ትኬቶቻችሁ ይጠበቃሉ፣ ክፍያዎም በ24 ሰዓት ውስጥ ይረጋገጣል።",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
     fullNamePlaceholder:"ሙሉ ስምዎን ያስገቡ",
     fillNamePhoneMsg:"እባክዎ ሙሉ ስምዎን እና ስልክ ቁጥርዎን ያስገቡ",
@@ -136,7 +140,9 @@ const TEXT = {
     toastSoon:"Dhiyootti ni dhufa", toastPicked:"lakkoofsi filatame",
     confirmSelection:"Filannoo Mirkaneessi", selectNumberLbl:"Lakkoofsa Filadhu", doneLbl:"Xumuri",
     orderConfirmTitle:"Bitta Xumuri", orderPaymentTitle:"Bitta Xumuri",
-    orderStatusTitle:"Ajajni ergameera",
+    orderStatusTitle:"Ajajni ergameera", orderReviewTitle:"Ajaja Ilaali",
+    bankLbl:"Baankii", submitOrderLbl:"Ajaja Ergi",
+    reviewNoteMsg:"Tikeetiin keessan ni ilaalama, kaffaltiinis sa'aatii 24 keessatti ni mirkanaa'a.",
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
     fullNamePlaceholder:"Maqaa keessan guutuu galchaa",
     fillNamePhoneMsg:"Maaloo maqaa keessan guutuu fi lakkoofsa bilbilaa keessan galchaa",
@@ -752,6 +758,7 @@ let checkoutOrder = null;
 let checkoutMode = 'random';
 let selectedBankId = null;
 let receiptFile = null;
+let reviewSenderAccount = '';
 
 function startCheckout(mode){
   checkoutMode = mode;
@@ -765,6 +772,7 @@ function startCheckout(mode){
   // and the server fills the remaining slots at random around them.
   selectedBankId = null;
   receiptFile = null;
+  reviewSenderAccount = '';
   checkoutOrder = null;
   renderCheckoutStep1();
   document.getElementById('checkoutModalBackdrop').classList.add('show');
@@ -772,13 +780,13 @@ function startCheckout(mode){
 }
 
 function setStepBars(step){
-  [1,2,3].forEach(n=>{
+  [1,2,3,4].forEach(n=>{
     const bar = document.getElementById('stepBar'+n);
     bar.classList.remove('active','done');
     if (n < step) bar.classList.add('done');
     if (n === step) bar.classList.add('active');
   });
-  document.getElementById('checkoutStepLbl').textContent = t('stepOfLbl').replace('{n}', step).replace('{total}', 3);
+  document.getElementById('checkoutStepLbl').textContent = t('stepOfLbl').replace('{n}', step).replace('{total}', 4);
 }
 
 function renderCheckoutStep1(){
@@ -891,7 +899,7 @@ function renderCheckoutStep2(banks){
     <div class="field" style="margin-top:14px;">
       <label>${t('senderAccountLbl')}</label>
       <div class="field-input-wrap">
-        <input type="text" id="senderAccountInput" placeholder="${t('senderAccountPlaceholder')}" value="">
+        <input type="text" id="senderAccountInput" placeholder="${t('senderAccountPlaceholder')}" value="${esc(reviewSenderAccount)}">
       </div>
     </div>
   `;
@@ -907,6 +915,7 @@ function renderCheckoutStep2(banks){
   });
 
   document.querySelectorAll('.bank-card').forEach(card=>{
+    if (card.dataset.bank === selectedBankId) card.classList.add('selected');
     card.addEventListener('click', ()=>{
       document.querySelectorAll('.bank-card').forEach(c=>c.classList.remove('selected'));
       card.classList.add('selected');
@@ -932,10 +941,24 @@ function renderCheckoutStep2(banks){
       }).catch(()=> showToast('Could not copy'));
     });
   });
-  document.getElementById('checkoutStep2Next').addEventListener('click', submitStep2);
+  document.getElementById('checkoutStep2Next').addEventListener('click', ()=>{
+    if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
+    renderCheckoutReview(banks);
+    setStepBars(3);
+  });
 
   const uploadBox = document.getElementById('uploadBox');
   const receiptInput = document.getElementById('receiptInput');
+  if (receiptFile){
+    uploadBox.classList.add('has-file');
+    document.getElementById('uploadIcon').style.display = 'none';
+    document.getElementById('uploadHintText').style.display = 'none';
+    const img = document.getElementById('uploadPreview');
+    img.src = URL.createObjectURL(receiptFile); img.style.display = 'block';
+    const tag = document.getElementById('uploadSenderTag');
+    tag.textContent = checkoutOrder.fullName || '';
+    tag.style.display = checkoutOrder.fullName ? 'block' : 'none';
+  }
   uploadBox.addEventListener('click', ()=> receiptInput.click());
   receiptInput.addEventListener('change', ()=>{
     const file = receiptInput.files[0];
@@ -956,29 +979,64 @@ function renderCheckoutStep2(banks){
   });
 }
 
-async function submitStep2(){
-  if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
-  const btn = document.getElementById('checkoutStep2Next');
+function renderCheckoutReview(banks){
+  document.getElementById('checkoutTitle').textContent = t('orderReviewTitle');
+  const bank = banks.find(b=> b.id === selectedBankId);
+  const senderAccount = document.getElementById('senderAccountInput') ? document.getElementById('senderAccountInput').value.trim() : reviewSenderAccount;
+  reviewSenderAccount = senderAccount;
+  const receiptUrl = receiptFile ? URL.createObjectURL(receiptFile) : '';
+  document.getElementById('checkoutBody').innerHTML = `
+    <div class="summary-card">
+      <div style="font-weight:700;margin-bottom:4px;">${esc(checkoutSummaryTitle(currentRaffle))}</div>
+      <div class="summary-row"><span>${checkoutOrder.quantity} ${t('ticketsUnitLbl')} × ${checkoutOrder.unitPrice.toLocaleString()} Birr</span></div>
+      <div class="order-id-chip">#${checkoutOrder.ticketNumbers.join(', #')}</div>
+      <div class="summary-row" style="margin-top:10px;"><span>${t('fullNameLbl')}</span><b>${esc(checkoutOrder.fullName)}</b></div>
+      <div class="summary-row"><span>${t('phoneLbl')}</span><b>${esc(checkoutOrder.phone)}</b></div>
+      ${bank ? `<div class="summary-row"><span>${t('bankLbl')}</span><b>${esc(bank.name)}</b></div>` : ''}
+      ${senderAccount ? `<div class="summary-row"><span>${t('senderAccountLbl')}</span><b>${esc(senderAccount)}</b></div>` : ''}
+      <div class="summary-total">${checkoutOrder.total.toLocaleString()} Birr</div>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-secondary);font-weight:600;margin-bottom:8px;">${t('uploadHint')}</div>
+    <div class="upload-box has-file" style="cursor:default;">
+      <img class="upload-preview" src="${receiptUrl}" style="display:block;">
+      <div class="upload-sender-tag">${esc(checkoutOrder.fullName || '')}</div>
+    </div>
+    <div class="review-note"><span>⚠️</span><span>${t('reviewNoteMsg')}</span></div>
+  `;
+  document.getElementById('checkoutFoot').innerHTML = `
+    <div class="btn-row">
+      <button class="btn btn-outline" id="checkoutReviewBack"><span>${t('backLabel')}</span></button>
+      <button class="btn btn-gold" id="checkoutReviewSubmit"><span class="step-badge step-10">10</span><span class="btn-label">${t('submitOrderLbl')}</span></button>
+    </div>
+  `;
+  document.getElementById('checkoutReviewBack').addEventListener('click', ()=>{
+    renderCheckoutStep2(banks);
+    setStepBars(2);
+  });
+  document.getElementById('checkoutReviewSubmit').addEventListener('click', submitPayment);
+}
+
+async function submitPayment(){
+  const btn = document.getElementById('checkoutReviewSubmit');
   const btnLabel = btn.querySelector('.btn-label');
   btn.disabled = true; btnLabel.textContent = '...';
   try{
     const fd = new FormData();
     fd.append('receipt', receiptFile);
     if (selectedBankId) fd.append('bankId', selectedBankId);
-    const senderAccount = document.getElementById('senderAccountInput').value.trim();
-    if (senderAccount) fd.append('senderAccount', senderAccount);
+    if (reviewSenderAccount) fd.append('senderAccount', reviewSenderAccount);
     const res = await fetch(`${API}/orders/${checkoutOrder.id}/payment`, { method:'POST', body: fd });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btnLabel.textContent=t('continueLbl'); return; }
+    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btnLabel.textContent=t('submitOrderLbl'); return; }
     checkoutOrder = data.order;
-    renderCheckoutStep3();
-    setStepBars(3);
+    renderCheckoutStep4();
+    setStepBars(4);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent=t('continueLbl');
+    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent=t('submitOrderLbl');
   }
 }
 
-function renderCheckoutStep3(){
+function renderCheckoutStep4(){
   document.getElementById('checkoutTitle').textContent = t('orderStatusTitle');
   document.getElementById('checkoutBody').innerHTML = `
     <div class="status-card">
@@ -990,7 +1048,7 @@ function renderCheckoutStep3(){
       <div style="color:var(--text-tertiary);font-size:11.5px;margin-top:6px;">Save this ID - you'll need it with your phone number to look up your tickets later.</div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span class="step-badge step-10">10</span><span>Done</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span class="step-badge step-11">11</span><span>Done</span></button>`;
   document.getElementById('checkoutDone').addEventListener('click', ()=>{
     document.getElementById('checkoutModalBackdrop').classList.remove('show');
     selectedNumbers = [];
