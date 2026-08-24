@@ -68,6 +68,8 @@ const TEXT = {
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
     fullNamePlaceholder:"Enter your full name",
     fillNamePhoneMsg:"Please fill in your name and phone number",
+    fillNameMsg:"Please enter your full name",
+    fillPhoneMsg:"Please enter your phone number",
     stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
@@ -100,6 +102,8 @@ const TEXT = {
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
     fullNamePlaceholder:"ሙሉ ስምዎን ያስገቡ",
     fillNamePhoneMsg:"እባክዎ ሙሉ ስምዎን እና ስልክ ቁጥርዎን ያስገቡ",
+    fillNameMsg:"እባክዎ ሙሉ ስምዎን ያስገቡ",
+    fillPhoneMsg:"እባክዎ ስልክ ቁጥርዎን ያስገቡ",
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
@@ -132,6 +136,8 @@ const TEXT = {
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
     fullNamePlaceholder:"Maqaa keessan guutuu galchaa",
     fillNamePhoneMsg:"Maaloo maqaa keessan guutuu fi lakkoofsa bilbilaa keessan galchaa",
+    fillNameMsg:"Maaloo maqaa keessan guutuu galchaa",
+    fillPhoneMsg:"Maaloo lakkoofsa bilbilaa keessan galchaa",
     stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Suura ragaa fe'uuf tuqi",
@@ -798,12 +804,29 @@ function renderCheckoutStep1(){
   `;
   document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-8">8</span><span class="btn-label">${t('continueLbl')}</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   document.getElementById('checkoutStep1Next').addEventListener('click', submitStep1);
+  document.getElementById('checkoutFullName').addEventListener('input', e=> e.target.classList.remove('input-error'));
+  document.getElementById('checkoutPhone').addEventListener('input', e=> e.target.classList.remove('input-error'));
 }
 
 async function submitStep1(){
-  const fullName = document.getElementById('checkoutFullName').value.trim();
-  const phone = document.getElementById('checkoutPhone').value.trim();
-  if (!fullName || !phone){ showToast(t('fillNamePhoneMsg')); return; }
+  const nameEl = document.getElementById('checkoutFullName');
+  const phoneEl = document.getElementById('checkoutPhone');
+  const fullName = nameEl.value.trim();
+  const phone = phoneEl.value.trim();
+  if (!fullName){
+    nameEl.classList.add('input-error');
+    nameEl.focus();
+    showToast(t('fillNameMsg'));
+    return;
+  }
+  nameEl.classList.remove('input-error');
+  if (!phone){
+    phoneEl.classList.add('input-error');
+    phoneEl.focus();
+    showToast(t('fillPhoneMsg'));
+    return;
+  }
+  phoneEl.classList.remove('input-error');
   // If this phone differs from the last saved one, drop the old
   // customerId - it belonged to that previous phone number and would
   // just cause a mismatch on the next ticket lookup. The real value for
@@ -852,6 +875,13 @@ function renderCheckoutStep2(banks){
           </div>
         </div>`).join('')}
     </div>
+    <div class="upload-box" id="uploadBox">
+      <div class="upload-icon" id="uploadIcon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 15V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 8l5-5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 16v2a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div id="uploadHintText" class="upload-hint-text">${t('uploadHint')}</div>
+      <img id="uploadPreview" class="upload-preview" style="display:none;">
+      <div id="uploadSenderTag" class="upload-sender-tag" style="display:none;"></div>
+    </div>
+    <input type="file" id="receiptInput" accept="image/*" style="display:none;">
   `;
   document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-9">9</span><span class="btn-label">${t('submitPaymentLbl')} →</span></button>`;
 
@@ -882,14 +912,37 @@ function renderCheckoutStep2(banks){
     });
   });
   document.getElementById('checkoutStep2Next').addEventListener('click', submitStep2);
+
+  const uploadBox = document.getElementById('uploadBox');
+  const receiptInput = document.getElementById('receiptInput');
+  uploadBox.addEventListener('click', ()=> receiptInput.click());
+  receiptInput.addEventListener('change', ()=>{
+    const file = receiptInput.files[0];
+    if (!file) return;
+    receiptFile = file;
+    uploadBox.classList.add('has-file');
+    document.getElementById('uploadIcon').style.display = 'none';
+    document.getElementById('uploadHintText').style.display = 'none';
+    const reader = new FileReader();
+    reader.onload = e=>{
+      const img = document.getElementById('uploadPreview');
+      img.src = e.target.result; img.style.display = 'block';
+      const tag = document.getElementById('uploadSenderTag');
+      tag.textContent = checkoutOrder.fullName || '';
+      tag.style.display = checkoutOrder.fullName ? 'block' : 'none';
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 async function submitStep2(){
+  if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
   const btn = document.getElementById('checkoutStep2Next');
   const btnLabel = btn.querySelector('.btn-label');
   btn.disabled = true; btnLabel.textContent = '...';
   try{
     const fd = new FormData();
+    fd.append('receipt', receiptFile);
     if (selectedBankId) fd.append('bankId', selectedBankId);
     const res = await fetch(`${API}/orders/${checkoutOrder.id}/payment`, { method:'POST', body: fd });
     const data = await res.json();
