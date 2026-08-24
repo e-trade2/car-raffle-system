@@ -43,7 +43,9 @@
   .brand-icon{ width:38px; height:38px; border-radius:50%; background:linear-gradient(145deg, var(--accent-gold), var(--accent-gold-deep)); display:flex; align-items:center; justify-content:center; font-size:18px; flex:none; box-shadow:0 4px 14px rgba(245,183,49,0.35); }
   .brand-name{ font-family:var(--font-display); font-weight:800; font-size:16.5px; line-height:1.15; color:var(--accent-gold); }
   .header-actions{ display:flex; align-items:center; gap:8px; }
-  .icon-btn{ width:38px; height:38px; border-radius:12px; background:var(--bg-card); border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; color:var(--text-secondary); position:relative; cursor:pointer; flex:none; }
+  .icon-btn{ width:38px; height:38px; border-radius:12px; background:var(--bg-card); border:1px solid var(--border-gold); display:flex; align-items:center; justify-content:center; color:var(--text-secondary); position:relative; cursor:pointer; flex:none; }
+  .icon-btn-bare{ width:38px; height:38px; border-radius:12px; background:none; border:none; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); position:relative; cursor:pointer; flex:none; }
+  #notifBtn{ color:var(--accent-gold); }
   .icon-btn .dot{ position:absolute; top:6px; right:6px; width:7px; height:7px; border-radius:50%; background:#ef4444; box-shadow:0 0 0 2px var(--bg-card); }
   .lang-wrap{ position:relative; }
   .lang-btn{ display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1.5px solid var(--border-gold); border-radius:12px; padding:0 12px; height:38px; color:var(--text-primary); font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; }
@@ -146,7 +148,7 @@
 
   .bottom-nav{ position:fixed; left:50%; transform:translateX(-50%); bottom:calc(12px + env(safe-area-inset-bottom)); width:calc(100% - 24px); max-width:456px; background:#0b1712; border:1px solid var(--border-subtle); border-radius:22px; display:flex; gap:6px; padding:8px; z-index:20; box-shadow:0 14px 34px rgba(0,0,0,0.5); }
   .nav-item{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--text-tertiary); font-size:12px; font-weight:700; cursor:pointer; padding:9px 6px; border-radius:14px; border:1px solid transparent; }
-  .nav-item.active{ color:var(--accent-gold); background:rgba(245,183,49,0.12); border-color:rgba(245,183,49,0.4); }
+  .nav-item.active{ color:var(--accent-gold); background:rgba(245,183,49,0.12); border-color:rgba(245,183,49,0.4); box-shadow:0 0 18px rgba(245,183,49,0.3); }
 
   .toast{ position:fixed; left:50%; bottom:96px; transform:translateX(-50%) translateY(20px); background:#16241d; color:var(--text-primary); border:1px solid var(--border-subtle); padding:12px 18px; border-radius:12px; font-size:13px; opacity:0; pointer-events:none; transition:all .25s ease; max-width:88%; text-align:center; z-index:100; box-shadow:0 12px 30px rgba(0,0,0,0.4); }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
@@ -285,7 +287,7 @@
       <div class="brand-name">Getachew<br>Fikadu</div>
     </div>
     <div class="header-actions">
-      <div class="icon-btn" id="globeBtn">
+      <div class="icon-btn-bare" id="globeBtn">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.7-3.8-9s1.3-6.4 3.8-9Z" stroke="currentColor" stroke-width="1.8"/></svg>
       </div>
       <div class="lang-wrap">
