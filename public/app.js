@@ -41,7 +41,7 @@ const TEXT = {
     soldLbl:"sold", filledLbl:"filled", remainLbl:"tickets remaining",
     participantsLbl:"Participants", buyTicket:"Buy Ticket",
     priceLbl:"Ticket Price", pickLabel:"Select your lucky numbers",
-    buyLabel:"Buy Now (random)", selectedNumsLbl:"Selected numbers:",
+    buyLabel:"Buy Now (random)", selectedNumsLbl:"Selected numbers:", selectBtnLabel:"Select",
     navHome:"Home", navTickets:"Tickets", navProfile:"Profile",
     myTicketsTitle:"My Tickets",
     toastSoon:"Coming soon", toastPicked:"numbers selected",
@@ -70,7 +70,7 @@ const TEXT = {
     soldLbl:"ተሸጠዋል", filledLbl:"ተሞልቷል", remainLbl:"ትኬት ቀርቷል",
     participantsLbl:"ተሳታፊዎች", buyTicket:"ትኬት ይግዙ",
     priceLbl:"የትኬት ዋጋ", pickLabel:"የዕድል ቁጥሮችዎን ይምረጡ",
-    buyLabel:"ፈጣን ምርጫ", selectedNumsLbl:"የመረጡት ቁጥሮች፡",
+    buyLabel:"ፈጣን ምርጫ", selectedNumsLbl:"የመረጡት ቁጥሮች፡", selectBtnLabel:"Select",
     navHome:"መነሻ", navTickets:"ትኬቶች", navProfile:"መገለጫ",
     myTicketsTitle:"የኔ ትኬቶች",
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
@@ -99,7 +99,7 @@ const TEXT = {
     soldLbl:"gurgurame", filledLbl:"guutame", remainLbl:"tiketeewwan hafan",
     participantsLbl:"Hirmaattota", buyTicket:"Tikeetii Kutadhu",
     priceLbl:"GATII TIKKEETTII", pickLabel:"Lakkofsa Carraa Kee Fili",
-    buyLabel:"Galmee Ariifataa", selectedNumsLbl:"Lakkoofsa filatte:",
+    buyLabel:"Galmee Ariifataa", selectedNumsLbl:"Lakkoofsa filatte:", selectBtnLabel:"Select",
     navHome:"Home", navTickets:"Tikeetii", navProfile:"Proofaayilii",
     myTicketsTitle:"Tikeetii Koo",
     toastSoon:"Dhiyootti ni dhufa", toastPicked:"lakkoofsi filatame",
@@ -528,29 +528,51 @@ function renderDetail(raffle){
         <div class="selected-chips" id="selectedChips"></div>
       </div>
       <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span>🎯 <span>${t('pickLabel')}</span></button>
-      <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
+      <div class="btn-row">
+        <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
+        <button class="btn btn-green" id="manualSelectBtn">${t('selectBtnLabel')}</button>
+      </div>
     </div>
   `;
   renderSelectedChips();
+  updateManualSelectBtn();
   document.getElementById('backBtn').addEventListener('click', ()=> showView('homeView'));
   document.getElementById('qtyPlus').addEventListener('click', ()=>{
     qty = Math.min(qty+1, MAX_TICKETS);
     document.getElementById('qtyVal').textContent = qty;
     if (selectedNumbers.length) { selectedNumbers = []; renderSelectedChips(); }
+    updateManualSelectBtn();
   });
   document.getElementById('qtyMinus').addEventListener('click', ()=>{
     qty = Math.max(qty-1, 1);
     document.getElementById('qtyVal').textContent = qty;
     if (selectedNumbers.length) { selectedNumbers = []; renderSelectedChips(); }
+    updateManualSelectBtn();
   });
   document.getElementById('pickNumbersBtn').addEventListener('click', ()=> openNumberPicker());
   document.getElementById('buyNowBtn').addEventListener('click', ()=> startCheckout('random'));
+  document.getElementById('manualSelectBtn').addEventListener('click', ()=>{
+    if (selectedNumbers.length !== qty){
+      showToast(`Please select ${qty} number(s) first`);
+      openNumberPicker();
+      return;
+    }
+    startCheckout('manual');
+  });
   tickAllCountdowns();
+}
+
+function updateManualSelectBtn(){
+  const btn = document.getElementById('manualSelectBtn');
+  if (!btn) return;
+  const ready = selectedNumbers.length && selectedNumbers.length === qty;
+  btn.classList.toggle('ready', !!ready);
 }
 
 function renderSelectedChips(){
   const row = document.getElementById('selectedNumbersRow');
   const chips = document.getElementById('selectedChips');
+  updateManualSelectBtn();
   if (!row) return;
   if (selectedNumbers.length){
     row.style.display = 'flex';
