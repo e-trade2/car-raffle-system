@@ -526,9 +526,17 @@ router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), asyn
 });
 
 router.post('/raffles', (req, res) => {
-  const { title, subtitle, imageUrl, price, totalNumbers, drawAt, badge, rating } = req.body;
+  const { title, subtitle, imageUrl, price, totalNumbers, drawAt, badge, rating, raffleNumber } = req.body;
   if (!title || !String(title).trim()) {
     return res.status(400).json({ error: 'title is required' });
+  }
+  // The admin sets this explicitly (rather than it being auto-counted)
+  // because raffles can be deleted/re-ordered and the admin may want the
+  // displayed sequence to reflect something other than raw row count -
+  // e.g. skipping a cancelled raffle. Required so it's never silently
+  // missing from the customer-facing title.
+  if (raffleNumber === undefined || raffleNumber === null || raffleNumber === '' || !Number.isInteger(Number(raffleNumber)) || Number(raffleNumber) <= 0) {
+    return res.status(400).json({ error: 'raffleNumber must be a positive integer' });
   }
   // Same coercion/validation as PUT /raffles/:id - a truthy check alone
   // (the previous `!price || !totalNumbers`) lets non-numeric strings like
@@ -552,6 +560,7 @@ router.post('/raffles', (req, res) => {
   const data = db.load();
   const raffle = {
     id: nanoid(8),
+    raffleNumber: Number(raffleNumber),
     title, subtitle: subtitle || '', imageUrl: imageUrl || '',
     price: priceNum, totalNumbers: totalNumbersNum,
     rating: ratingNum,
@@ -595,6 +604,11 @@ router.put('/raffles/:id', (req, res) => {
     const rating = Number(req.body.rating);
     if (!Number.isFinite(rating) || rating < 0 || rating > 5) return res.status(400).json({ error: 'rating must be between 0 and 5' });
     raffle.rating = rating;
+  }
+  if (req.body.raffleNumber !== undefined) {
+    const raffleNumber = Number(req.body.raffleNumber);
+    if (!Number.isInteger(raffleNumber) || raffleNumber <= 0) return res.status(400).json({ error: 'raffleNumber must be a positive integer' });
+    raffle.raffleNumber = raffleNumber;
   }
   const passthroughFields = ['title', 'subtitle', 'imageUrl', 'drawAt', 'badge', 'status'];
   for (const f of passthroughFields) {
