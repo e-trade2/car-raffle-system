@@ -900,7 +900,6 @@ function renderCheckoutStep2(banks){
       <div id="uploadHintText" class="upload-hint-text">${t('uploadHint')}</div>
       <div id="uploadSizeHint" class="upload-size-hint">${t('uploadSizeHint')}</div>
       <img id="uploadPreview" class="upload-preview" style="display:none;">
-      <div id="uploadSenderTag" class="upload-sender-tag" style="display:none;"></div>
     </div>
     <input type="file" id="receiptInput" accept="image/*" style="display:none;">
     <div class="field" style="margin-top:14px;">
@@ -968,9 +967,6 @@ function renderCheckoutStep2(banks){
     document.getElementById('uploadSizeHint').style.display = 'none';
     const img = document.getElementById('uploadPreview');
     img.src = URL.createObjectURL(receiptFile); img.style.display = 'block';
-    const tag = document.getElementById('uploadSenderTag');
-    tag.textContent = checkoutOrder.fullName || '';
-    tag.style.display = checkoutOrder.fullName ? 'block' : 'none';
   }
   uploadBox.addEventListener('click', ()=> receiptInput.click());
   receiptInput.addEventListener('change', ()=>{
@@ -985,9 +981,6 @@ function renderCheckoutStep2(banks){
     reader.onload = e=>{
       const img = document.getElementById('uploadPreview');
       img.src = e.target.result; img.style.display = 'block';
-      const tag = document.getElementById('uploadSenderTag');
-      tag.textContent = checkoutOrder.fullName || '';
-      tag.style.display = checkoutOrder.fullName ? 'block' : 'none';
     };
     reader.readAsDataURL(file);
   });
@@ -1016,7 +1009,6 @@ function renderCheckoutReview(banks){
     <div style="font-size:12.5px;color:var(--text-secondary);font-weight:600;margin-bottom:8px;">${t('uploadHint')}</div>
     <div class="upload-box has-file" style="cursor:default;">
       <img class="upload-preview" src="${receiptUrl}" style="display:block;">
-      <div class="upload-sender-tag">${esc(checkoutOrder.fullName || '')}</div>
     </div>
     <div class="review-note"><span>⚠️</span><span>${t('reviewNoteMsg')}</span></div>
   `;
