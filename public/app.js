@@ -41,7 +41,7 @@ const TEXT = {
     soldLbl:"sold", filledLbl:"filled", remainLbl:"tickets remaining",
     participantsLbl:"Participants", buyTicket:"Buy Ticket",
     priceLbl:"Ticket Price", pickLabel:"Select your lucky numbers",
-    buyLabel:"Buy Now (random)", selectedNumsLbl:"Selected numbers:", selectBtnLabel:"Select",
+    buyLabel:"Quick Pick", selectedNumsLbl:"Selected numbers:", selectBtnLabel:"Buy Ticket",
     navHome:"Home", navTickets:"Tickets", navProfile:"Profile",
     myTicketsTitle:"My Tickets",
     toastSoon:"Coming soon", toastPicked:"numbers selected",
@@ -72,7 +72,7 @@ const TEXT = {
     soldLbl:"ተሸጠዋል", filledLbl:"ተሞልቷል", remainLbl:"ትኬት ቀርቷል",
     participantsLbl:"ተሳታፊዎች", buyTicket:"ትኬት ይግዙ",
     priceLbl:"የትኬት ዋጋ", pickLabel:"የዕድል ቁጥሮችዎን ይምረጡ",
-    buyLabel:"ፈጣን ምርጫ", selectedNumsLbl:"የመረጡት ቁጥሮች፡", selectBtnLabel:"ምረጥ",
+    buyLabel:"ፈጣን ምርጫ", selectedNumsLbl:"የመረጡት ቁጥሮች፡", selectBtnLabel:"ትኬት ግዛ",
     navHome:"መነሻ", navTickets:"ትኬቶች", navProfile:"መገለጫ",
     myTicketsTitle:"የኔ ትኬቶች",
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
@@ -103,7 +103,7 @@ const TEXT = {
     soldLbl:"gurgurame", filledLbl:"guutame", remainLbl:"tiketeewwan hafan",
     participantsLbl:"Hirmaattota", buyTicket:"Tikeetii Kutadhu",
     priceLbl:"GATII TIKKEETTII", pickLabel:"Lakkofsa Carraa Kee Fili",
-    buyLabel:"Galmee Ariifataa", selectedNumsLbl:"Lakkoofsa filatte:", selectBtnLabel:"Filadhu",
+    buyLabel:"Galmee Ariifataa", selectedNumsLbl:"Lakkoofsa filatte:", selectBtnLabel:"Tikeeti Bitadhu",
     navHome:"Home", navTickets:"Tikeetii", navProfile:"Proofaayilii",
     myTicketsTitle:"Tikeetii Koo",
     toastSoon:"Dhiyootti ni dhufa", toastPicked:"lakkoofsi filatame",
@@ -479,6 +479,14 @@ let qty = 1;
 let selectedNumbers = [];
 const MAX_TICKETS = 20; // max numbers a single order can contain
 
+// Zero-pads a ticket number to match the width of the raffle's largest
+// number (e.g. 91 -> "091" when totalNumbers is in the hundreds), so
+// numbers line up consistently in the grid and in the selected chips.
+function padNum(n){
+  const width = currentRaffle ? String(currentRaffle.totalNumbers).length : 2;
+  return String(n).padStart(width, '0');
+}
+
 async function openDetail(raffleId){
   try{
     const res = await fetch(`${API}/raffles/${raffleId}`);
@@ -536,7 +544,7 @@ function renderDetail(raffle){
       <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span>🎯 <span>${t('pickLabel')}</span></button>
       <div class="btn-row">
         <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
-        <button class="btn btn-green" id="manualSelectBtn">${t('selectBtnLabel')}</button>
+        <button class="btn btn-green" id="manualSelectBtn"><span class="step-badge step-7">7</span><span>${t('selectBtnLabel')}</span></button>
       </div>
     </div>
   `;
@@ -582,7 +590,7 @@ function renderSelectedChips(){
   if (!row) return;
   if (selectedNumbers.length){
     row.style.display = 'flex';
-    chips.innerHTML = selectedNumbers.map(n=> `<span class="chip-num">${n}</span>`).join('');
+    chips.innerHTML = selectedNumbers.map(n=> `<span class="chip-num">${padNum(n)}</span>`).join('');
   } else {
     row.style.display = 'none';
     chips.innerHTML = '';
@@ -660,7 +668,7 @@ async function loadAllNumbers(){
     cell.className = 'num-cell';
     if (selectedNumbers.includes(item.n)) cell.classList.add('selected');
     else if (item.status !== 'available') cell.classList.add(item.status);
-    cell.textContent = item.n;
+    cell.textContent = padNum(item.n);
     if (item.status === 'available' || selectedNumbers.includes(item.n)){
       cell.addEventListener('click', ()=> toggleNumber(item.n, cell));
     }
