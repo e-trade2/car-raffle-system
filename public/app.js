@@ -14,6 +14,14 @@ function esc(str){
   }[c]));
 }
 
+// The leading number shown before a raffle's title (e.g. "3 Gech EV Makina
+// Equb") is set explicitly by the admin per raffle (raffle.raffleNumber),
+// not typed into the title text by hand - keeps it consistent even if the
+// title itself gets edited later.
+function raffleDisplayTitle(raffle){
+  return raffle.raffleNumber ? `${raffle.raffleNumber} ${raffle.title}` : raffle.title;
+}
+
 function copyToClipboard(text){
   if (navigator.clipboard && window.isSecureContext){
     return navigator.clipboard.writeText(text);
@@ -372,7 +380,7 @@ function raffleCardHtml(raffle, idx){
       ${carHtml(raffle)}
     </div>
     <div class="hero-body">
-      <div class="car-title">${esc(raffle.title)}</div>
+      <div class="car-title">${esc(raffleDisplayTitle(raffle))}</div>
       <div class="car-sub">${esc(raffle.subtitle||'')}</div>
       <div class="countdown-label">⏱ <span>${t('cdLabel')}</span></div>
       <div class="countdown" data-raffle="${raffle.id}">
@@ -413,7 +421,7 @@ function miniCardHtml(raffle){
   <div class="mini-card" data-open-detail="${raffle.id}">
     ${img}
     <div class="mini-card-body">
-      <div class="mini-card-title">${esc(raffle.title)}</div>
+      <div class="mini-card-title">${esc(raffleDisplayTitle(raffle))}</div>
       <div class="mini-card-sub">${esc(raffle.subtitle||'')}</div>
       <div class="mini-card-meta">${badge}<span>${raffle.percentFilled}% ${t('filledLbl')}</span></div>
     </div>
@@ -514,7 +522,7 @@ function renderDetail(raffle){
         ${carHtml(raffle)}
       </div>
       <div class="hero-body">
-        <div class="car-title">${esc(raffle.title)}</div>
+        <div class="car-title">${esc(raffleDisplayTitle(raffle))}</div>
         <div class="car-sub">${esc(raffle.subtitle||'')}</div>
         <div class="countdown-label">🔥 <span>${t('cdLabel')}</span></div>
         <div class="countdown" data-raffle="${raffle.id}">
@@ -754,7 +762,7 @@ function renderCheckoutStep1(){
   const total = currentRaffle.price * qty;
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
-      <div style="font-weight:700;margin-bottom:4px;">${esc(currentRaffle.title)}</div>
+      <div style="font-weight:700;margin-bottom:4px;">${esc(raffleDisplayTitle(currentRaffle))}</div>
       <div class="summary-row"><span>${qty} ${t('ticketsUnitLbl')} × ${currentRaffle.price.toLocaleString()} Birr</span></div>
       <div class="summary-total">${total.toLocaleString()} Birr</div>
       ${checkoutMode === 'manual' && selectedNumbers.length ? `<div class="order-id-chip">#${selectedNumbers.join(', #')}</div>` : ''}
@@ -765,7 +773,7 @@ function renderCheckoutStep1(){
       <label>${t('fullNameLbl')}</label>
       <div class="field-input-wrap">
         <span class="field-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-3.6 3.6-6.5 8-6.5s8 2.9 8 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="${esc(localStorage.getItem('fullName')||'')}">
+        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="">
       </div>
     </div>
     <div class="field">
