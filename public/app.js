@@ -60,6 +60,7 @@ const TEXT = {
     announcementsLbl:"Announcements", noAnnouncementsLbl:"No announcements yet",
     lotteryLbl:"Lottery", winningTicketLbl:"Winning Ticket", prizeLbl:"Prize",
     tabAllLbl:"All", tabFeaturedLbl:"Featured", tabNewLbl:"New",
+    badgeFeaturedLbl:"Featured",
     ongoingRafflesLbl:"Ongoing raffles", availableLbl:"available",
     newBadgeLbl:"NEW",
   },
@@ -87,7 +88,8 @@ const TEXT = {
     legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendReservedLbl:"የተጠበቀ", legendFreeLbl:"ክፍት",
     announcementsLbl:"ማስታወቂያዎች", noAnnouncementsLbl:"እስካሁን ምንም ማስታወቂያ የለም",
     lotteryLbl:"ሎተሪ", winningTicketLbl:"አሸናፊ ትኬት", prizeLbl:"ሽልማት",
-    tabAllLbl:"ሁሉም", tabFeaturedLbl:"የተለዩ", tabNewLbl:"አዲስ",
+    tabAllLbl:"ሁሉም", tabFeaturedLbl:"ተመራጭ", tabNewLbl:"አዲስ",
+    badgeFeaturedLbl:"ተመራጭ",
     ongoingRafflesLbl:"በመካሄድ ላይ ያሉ ዕጣዎች", availableLbl:"ያሉ",
     newBadgeLbl:"አዲስ",
   },
@@ -116,6 +118,7 @@ const TEXT = {
     announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
     lotteryLbl:"Lootarii", winningTicketLbl:"Tikeetii Injifate", prizeLbl:"Badhaasa",
     tabAllLbl:"Hunda", tabFeaturedLbl:"Filatamoo", tabNewLbl:"Haaraa",
+    badgeFeaturedLbl:"Filatamaa",
     ongoingRafflesLbl:"Lootarii Deemsifamaa Jiru", availableLbl:"jiru",
     newBadgeLbl:"HAARAA",
   }
@@ -353,7 +356,7 @@ function carHtml(raffle){
 }
 
 function raffleCardHtml(raffle, idx){
-  const badge = raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('tabFeaturedLbl')}</div>`
+  const badge = raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('badgeFeaturedLbl')}</div>`
     : raffle.badge === 'new' ? `<div class="badge-new">${t('newBadgeLbl')}</div>` : '';
   return `
   <div class="hero" style="margin-top:${idx>0?'14px':'0'};">
@@ -368,8 +371,11 @@ function raffleCardHtml(raffle, idx){
       <div class="countdown-label">⏱ <span>${t('cdLabel')}</span></div>
       <div class="countdown" data-raffle="${raffle.id}">
         <div class="cd-box"><div class="cd-num" data-unit="days">--</div><div class="cd-lbl">${t('cdDaysLbl')}</div></div>
+        <div class="cd-sep">:</div>
         <div class="cd-box"><div class="cd-num" data-unit="hours">--</div><div class="cd-lbl">${t('cdHoursLbl')}</div></div>
+        <div class="cd-sep">:</div>
         <div class="cd-box"><div class="cd-num" data-unit="mins">--</div><div class="cd-lbl">${t('cdMinsLbl')}</div></div>
+        <div class="cd-sep">:</div>
         <div class="cd-box"><div class="cd-num" data-unit="secs">--</div><div class="cd-lbl">${t('cdSecsLbl')}</div></div>
       </div>
       <div class="stats-block">
@@ -499,8 +505,11 @@ function renderDetail(raffle){
         <div class="countdown-label">🔥 <span>${t('cdLabel')}</span></div>
         <div class="countdown" data-raffle="${raffle.id}">
           <div class="cd-box"><div class="cd-num" data-unit="days">--</div><div class="cd-lbl">${t('cdDaysLbl')}</div></div>
+          <div class="cd-sep">:</div>
           <div class="cd-box"><div class="cd-num" data-unit="hours">--</div><div class="cd-lbl">${t('cdHoursLbl')}</div></div>
+          <div class="cd-sep">:</div>
           <div class="cd-box"><div class="cd-num" data-unit="mins">--</div><div class="cd-lbl">${t('cdMinsLbl')}</div></div>
+          <div class="cd-sep">:</div>
           <div class="cd-box"><div class="cd-num" data-unit="secs">--</div><div class="cd-lbl">${t('cdSecsLbl')}</div></div>
         </div>
       </div>
