@@ -22,6 +22,15 @@ function raffleDisplayTitle(raffle){
   return raffle.raffleNumber ? `${raffle.raffleNumber} ${raffle.title}` : raffle.title;
 }
 
+// Used only on the checkout confirmation card (Step 1 of 3, see
+// renderCheckoutStep1 below) - shows "<raffleNumber> Gech EV Makina Equb"
+// instead of the raffle's real title there. Every other place a raffle's
+// title is shown (home cards, detail page, mini cards) still calls
+// raffleDisplayTitle() above and keeps showing the actual title untouched.
+function checkoutSummaryTitle(raffle){
+  return raffle.raffleNumber ? `${raffle.raffleNumber} Gech EV Makina Equb` : 'Gech EV Makina Equb';
+}
+
 function copyToClipboard(text){
   if (navigator.clipboard && window.isSecureContext){
     return navigator.clipboard.writeText(text);
@@ -762,7 +771,7 @@ function renderCheckoutStep1(){
   const total = currentRaffle.price * qty;
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
-      <div style="font-weight:700;margin-bottom:4px;">${esc(raffleDisplayTitle(currentRaffle))}</div>
+      <div style="font-weight:700;margin-bottom:4px;">${esc(checkoutSummaryTitle(currentRaffle))}</div>
       <div class="summary-row"><span>${qty} ${t('ticketsUnitLbl')} × ${currentRaffle.price.toLocaleString()} Birr</span></div>
       <div class="summary-total">${total.toLocaleString()} Birr</div>
       ${checkoutMode === 'manual' && selectedNumbers.length ? `<div class="order-id-chip">#${selectedNumbers.join(', #')}</div>` : ''}
