@@ -79,6 +79,7 @@ const TEXT = {
     senderAccountLbl:"Sent from account number (optional)",
     senderAccountPlaceholder:"Account you sent money from",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
+    orderSentTitle:"Order Sent!", orderSentMsg:"Order #{id} was sent successfully. Payment confirmation may take up to 24 hours.", closeLbl:"Close",
     ticketNo:"Ticket #", banksLbl:"Select bank to view account (optional)",
     notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
     noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
@@ -118,6 +119,7 @@ const TEXT = {
     senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
     senderAccountPlaceholder:"ገንዘብ የላኩበት ሂሳብ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
+    orderSentTitle:"ግዢው ተልኳል!", orderSentMsg:"ትዕዛዝ #{id} በተሳካ ሁኔታ ተልኳል። የክፍያ ማረጋገጫ እስከ 24 ሰዓት ሊወስድ ይችላል።", closeLbl:"ዝጋ",
     ticketNo:"ትኬት ቁ.", banksLbl:"ክፍያ ለመላክ የባንክ ሂሳብ ይምረጡ",
     notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
     noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
@@ -157,6 +159,7 @@ const TEXT = {
     senderAccountLbl:"Herrega irraa erge (filatamaa)",
     senderAccountPlaceholder:"Herrega maallaqa irraa ergitan",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
+    orderSentTitle:"Ajajni Ergameera!", orderSentMsg:"Ajaja #{id} milkaa'inaan ergameera. Mirkaneessuun kaffaltii sa'aatii 24 fudhachuu danda'a.", closeLbl:"Cufi",
     ticketNo:"Lakk. Tikeetii", banksLbl:"Kaffaltii dabarsuuf herrega baankii fili",
     notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
     noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
@@ -550,7 +553,7 @@ function renderDetail(raffle){
     </div>
     <div class="hero">
       <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
-        <div class="badge-new">NEW</div>
+        ${raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('badgeFeaturedLbl')}</div>` : raffle.badge === 'new' ? `<div class="badge-new">${t('newBadgeLbl')}</div>` : ''}
         <div class="badge-rating">★★★★★ <span class="rating-num">${raffle.rating.toFixed(1)}</span></div>
         ${carHtml(raffle)}
       </div>
@@ -808,7 +811,7 @@ function renderCheckoutStep1(){
       <label>${t('fullNameLbl')}</label>
       <div class="field-input-wrap">
         <span class="field-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-3.6 3.6-6.5 8-6.5s8 2.9 8 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="">
+        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="${esc(localStorage.getItem('fullName')||'')}">
       </div>
     </div>
     <div class="field">
@@ -945,9 +948,14 @@ function renderCheckoutStep2(banks){
     });
   });
   document.getElementById('checkoutStep2Next').addEventListener('click', ()=>{
-    if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
-    renderCheckoutReview(banks);
-    setStepBars(3);
+    try{
+      if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
+      renderCheckoutReview(banks);
+      setStepBars(3);
+    }catch(e){
+      console.error('checkoutStep2Next failed:', e);
+      showToast('Something went wrong, please try again');
+    }
   });
 
   const uploadBox = document.getElementById('uploadBox');
@@ -1046,15 +1054,17 @@ function renderCheckoutStep4(){
   document.getElementById('checkoutTitle').textContent = t('orderStatusTitle');
   document.getElementById('checkoutBody').innerHTML = `
     <div class="status-card">
-      <div class="status-icon wait">⏳</div>
-      <div style="font-weight:700;font-size:16px;margin-bottom:8px;">Order #${checkoutOrder.id}</div>
-      <div style="color:var(--text-secondary);font-size:13.5px;line-height:1.5;">${t('waitingApproval')}</div>
+      <div class="status-icon success">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="status-title">${t('orderSentTitle')}</div>
+      <div style="color:var(--text-secondary);font-size:13.5px;line-height:1.5;">${t('orderSentMsg').replace('{id}', checkoutOrder.id)}</div>
       <div class="order-id-chip" style="margin-top:14px;">Tickets: #${checkoutOrder.ticketNumbers.join(', #')}</div>
       <div class="order-id-chip" style="margin-top:8px;background:var(--accent-gold);color:#241a02;font-weight:700;">Your Customer ID: ${esc(checkoutOrder.customerId)}</div>
       <div style="color:var(--text-tertiary);font-size:11.5px;margin-top:6px;">Save this ID - you'll need it with your phone number to look up your tickets later.</div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span class="step-badge step-11">11</span><span>Done</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span>${t('closeLbl')}</span></button>`;
   document.getElementById('checkoutDone').addEventListener('click', ()=>{
     document.getElementById('checkoutModalBackdrop').classList.remove('show');
     selectedNumbers = [];
