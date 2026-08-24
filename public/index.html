@@ -230,6 +230,7 @@
   .summary-row{ display:flex; justify-content:space-between; font-size:13px; color:var(--text-secondary); margin-bottom:6px; }
   .summary-row b{ color:var(--text-primary); }
   .summary-total{ font-family:var(--font-display); font-weight:700; font-size:20px; color:var(--accent-gold); margin-top:8px; }
+  .review-note{ display:flex; align-items:flex-start; gap:8px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); color:#f5b731; font-size:12.5px; line-height:1.5; border-radius:12px; padding:12px 14px; margin-top:14px; }
   .order-id-chip{ display:inline-block; margin-top:8px; background:rgba(245,183,49,0.12); color:var(--accent-gold); font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; }
 
   .bank-card{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--bg-card); border:1.5px solid var(--border-subtle); border-radius:14px; padding:14px; margin-bottom:10px; cursor:pointer; }
@@ -447,13 +448,14 @@
 <div class="modal-backdrop" id="checkoutModalBackdrop">
   <div class="modal">
     <div class="modal-head">
-      <div><div class="modal-title" id="checkoutTitle">Confirm your order</div><div class="modal-sub" id="checkoutStepLbl">Step 1 of 3</div></div>
+      <div><div class="modal-title" id="checkoutTitle">Confirm your order</div><div class="modal-sub" id="checkoutStepLbl">Step 1 of 4</div></div>
       <div class="modal-close" id="checkoutModalClose">✕</div>
     </div>
     <div class="steps">
       <div class="step-bar" id="stepBar1"><div class="fill"></div></div>
       <div class="step-bar" id="stepBar2"><div class="fill"></div></div>
       <div class="step-bar" id="stepBar3"><div class="fill"></div></div>
+      <div class="step-bar" id="stepBar4"><div class="fill"></div></div>
     </div>
     <div class="modal-body" id="checkoutBody"></div>
     <div class="modal-foot" id="checkoutFoot"></div>
