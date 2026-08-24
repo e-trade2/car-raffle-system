@@ -811,7 +811,7 @@ function renderCheckoutStep1(){
       <label>${t('fullNameLbl')}</label>
       <div class="field-input-wrap">
         <span class="field-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-3.6 3.6-6.5 8-6.5s8 2.9 8 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="${esc(localStorage.getItem('fullName')||'')}">
+        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="">
       </div>
     </div>
     <div class="field">
