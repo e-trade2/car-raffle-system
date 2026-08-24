@@ -543,7 +543,7 @@ function renderDetail(raffle){
       </div>
       <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span>🎯 <span>${t('pickLabel')}</span></button>
       <div class="btn-row">
-        <button class="btn btn-gold" id="buyNowBtn"><span class="step-badge step-7">7</span>⚡ <span>${t('buyLabel')}</span></button>
+        <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
         <button class="btn btn-green" id="manualSelectBtn"><span>${t('selectBtnLabel')}</span></button>
       </div>
     </div>
