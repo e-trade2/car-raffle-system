@@ -59,6 +59,9 @@ const TEXT = {
     legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendReservedLbl:"Reserved", legendFreeLbl:"Free",
     announcementsLbl:"Announcements", noAnnouncementsLbl:"No announcements yet",
     lotteryLbl:"Lottery", winningTicketLbl:"Winning Ticket", prizeLbl:"Prize",
+    tabAllLbl:"All", tabFeaturedLbl:"Featured", tabNewLbl:"New",
+    ongoingRafflesLbl:"Ongoing raffles", availableLbl:"available",
+    newBadgeLbl:"NEW",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -84,6 +87,9 @@ const TEXT = {
     legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendReservedLbl:"የተጠበቀ", legendFreeLbl:"ክፍት",
     announcementsLbl:"ማስታወቂያዎች", noAnnouncementsLbl:"እስካሁን ምንም ማስታወቂያ የለም",
     lotteryLbl:"ሎተሪ", winningTicketLbl:"አሸናፊ ትኬት", prizeLbl:"ሽልማት",
+    tabAllLbl:"ሁሉም", tabFeaturedLbl:"የተለዩ", tabNewLbl:"አዲስ",
+    ongoingRafflesLbl:"በመካሄድ ላይ ያሉ ዕጣዎች", availableLbl:"ያሉ",
+    newBadgeLbl:"አዲስ",
   },
   om: {
     backLabel:"Deebi'i", cdLabel:"GUYYA XUMURRA",
@@ -109,6 +115,9 @@ const TEXT = {
     legendSelectedLbl:"Filatame", legendTakenLbl:"Gurgurame", legendReservedLbl:"Eegame", legendFreeLbl:"Jira",
     announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
     lotteryLbl:"Lootarii", winningTicketLbl:"Tikeetii Injifate", prizeLbl:"Badhaasa",
+    tabAllLbl:"Hunda", tabFeaturedLbl:"Filatamoo", tabNewLbl:"Haaraa",
+    ongoingRafflesLbl:"Lootarii Deemsifamaa Jiru", availableLbl:"jiru",
+    newBadgeLbl:"HAARAA",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -139,6 +148,10 @@ function applyLang(lang){
   if (document.getElementById('notifModalBackdrop').classList.contains('show')) renderNotifPanel();
 }
 
+document.getElementById('globeBtn').addEventListener('click', ()=>{
+  document.getElementById('langMenu').classList.toggle('show');
+  document.getElementById('langBtn').classList.toggle('open');
+});
 document.getElementById('langBtn').addEventListener('click', ()=>{
   document.getElementById('langMenu').classList.toggle('show');
   document.getElementById('langBtn').classList.toggle('open');
@@ -340,13 +353,13 @@ function carHtml(raffle){
 }
 
 function raffleCardHtml(raffle, idx){
-  const badge = raffle.badge === 'hot' ? `<div class="badge-hot">🔥 Featured</div>`
-    : raffle.badge === 'new' ? `<div class="badge-new">NEW</div>` : '';
+  const badge = raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('tabFeaturedLbl')}</div>`
+    : raffle.badge === 'new' ? `<div class="badge-new">${t('newBadgeLbl')}</div>` : '';
   return `
   <div class="hero" style="margin-top:${idx>0?'14px':'0'};">
     <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
       ${badge}
-      <div class="badge-rating">★★★★★ <span class="rating-num">${raffle.rating.toFixed(1)}</span></div>
+      <div class="badge-rating">★★★★★</div>
       ${carHtml(raffle)}
     </div>
     <div class="hero-body">
@@ -378,21 +391,76 @@ function raffleCardHtml(raffle, idx){
   </div>`;
 }
 
+let homeTabFilter = 'all';
+
+function miniCardHtml(raffle){
+  const badge = raffle.badge === 'hot' ? `<span class="mini-card-badge">🔥 ${t('tabFeaturedLbl')}</span>`
+    : raffle.badge === 'new' ? `<span class="mini-card-badge">${t('newBadgeLbl')}</span>` : '';
+  const img = raffle.imageUrl ? `<img class="mini-card-img" src="${esc(raffle.imageUrl)}" alt="${esc(raffle.title)}">` : `<div class="mini-card-img"></div>`;
+  return `
+  <div class="mini-card" data-open-detail="${raffle.id}">
+    ${img}
+    <div class="mini-card-body">
+      <div class="mini-card-title">${esc(raffle.title)}</div>
+      <div class="mini-card-sub">${esc(raffle.subtitle||'')}</div>
+      <div class="mini-card-meta">${badge}<span>${raffle.percentFilled}% ${t('filledLbl')}</span></div>
+    </div>
+  </div>`;
+}
+
 function renderHomeList(){
   const wrap = document.getElementById('raffleListHome');
   const empty = document.getElementById('homeEmpty');
   const active = raffles.filter(r=> r.status === 'active');
+  const tabsEl = document.getElementById('homeTabs');
+  const ongoingHead = document.getElementById('ongoingHead');
+  const otherWrap = document.getElementById('otherRafflesList');
+  const otherEmpty = document.getElementById('otherRafflesEmpty');
+
   if (active.length === 0){
     wrap.innerHTML = '';
     empty.style.display = 'block';
+    tabsEl.style.display = 'none';
+    ongoingHead.style.display = 'none';
+    otherWrap.innerHTML = '';
+    otherEmpty.style.display = 'none';
     return;
   }
   empty.style.display = 'none';
-  wrap.innerHTML = active.map(raffleCardHtml).join('');
+
+  // First active raffle is the main featured hero; the rest show as a
+  // filterable "Ongoing raffles" list below.
+  const [main, ...rest] = active;
+  wrap.innerHTML = raffleCardHtml(main, 0);
   wrap.querySelectorAll('[data-open-detail]').forEach(btn=>{
     btn.addEventListener('click', ()=> openDetail(btn.dataset.openDetail));
   });
+
+  tabsEl.style.display = 'flex';
+  ongoingHead.style.display = 'flex';
+
+  const filtered = rest.filter(r=> homeTabFilter === 'all' || r.badge === homeTabFilter);
+  document.getElementById('ongoingCount').textContent = filtered.length;
+
+  if (filtered.length === 0){
+    otherWrap.innerHTML = '';
+    otherEmpty.style.display = 'block';
+  } else {
+    otherEmpty.style.display = 'none';
+    otherWrap.innerHTML = filtered.map(miniCardHtml).join('');
+    otherWrap.querySelectorAll('[data-open-detail]').forEach(el=>{
+      el.addEventListener('click', ()=> openDetail(el.dataset.openDetail));
+    });
+  }
 }
+
+document.getElementById('homeTabs').addEventListener('click', (e)=>{
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  homeTabFilter = tab.dataset.filter;
+  document.querySelectorAll('#homeTabs .tab').forEach(t=> t.classList.toggle('active', t === tab));
+  renderHomeList();
+});
 
 // ===================== DETAIL =====================
 let qty = 1;
