@@ -997,7 +997,7 @@ function renderCheckoutReview(banks){
       <div class="ticket-numbers-wrap">${checkoutOrder.ticketNumbers.map(n=>`<span class="ticket-num-chip">#${n}</span>`).join('')}</div>
       <div class="summary-row"><span>${t('fullNameLbl')}</span><b>${esc(checkoutOrder.fullName)}</b></div>
       <div class="summary-row"><span>${t('phoneLbl')}</span><b>${esc(checkoutOrder.phone)}</b></div>
-      ${bank ? `<div class="summary-row"><span>${t('bankLbl')}</span><b>${esc(bank.name)}</b></div>` : ''}
+      <div class="summary-row"><span>${t('bankLbl')}</span><b>${bank ? esc(bank.name) : ''}</b></div>
       ${senderAccount ? `<div class="summary-row"><span>${t('senderAccountLbl')}</span><b>${esc(senderAccount)}</b></div>` : ''}
       <div class="summary-divider"></div>
       <div class="summary-row summary-row-total"><span>${t('totalLbl')}</span><b>${checkoutOrder.total.toLocaleString()} Birr</b></div>
