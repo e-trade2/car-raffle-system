@@ -67,6 +67,7 @@ const TEXT = {
     orderStatusTitle:"Order submitted",
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
     fullNamePlaceholder:"Enter your full name",
+    fillNamePhoneMsg:"Please fill in your name and phone number",
     stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
@@ -98,6 +99,7 @@ const TEXT = {
     orderStatusTitle:"ትዕዛዝ ገብቷል",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
     fullNamePlaceholder:"ሙሉ ስምዎን ያስገቡ",
+    fillNamePhoneMsg:"እባክዎ ሙሉ ስምዎን እና ስልክ ቁጥርዎን ያስገቡ",
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
@@ -129,6 +131,7 @@ const TEXT = {
     orderStatusTitle:"Ajajni ergameera",
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
     fullNamePlaceholder:"Maqaa keessan guutuu galchaa",
+    fillNamePhoneMsg:"Maaloo maqaa keessan guutuu fi lakkoofsa bilbilaa keessan galchaa",
     stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Suura ragaa fe'uuf tuqi",
@@ -389,7 +392,7 @@ function raffleCardHtml(raffle, idx){
       ${carHtml(raffle)}
     </div>
     <div class="hero-body">
-      <div class="car-title">${esc(raffleDisplayTitle(raffle))}</div>
+      <div class="car-title">${esc(raffle.title)}</div>
       <div class="car-sub">${esc(raffle.subtitle||'')}</div>
       <div class="countdown-label">⏱ <span>${t('cdLabel')}</span></div>
       <div class="countdown" data-raffle="${raffle.id}">
@@ -430,7 +433,7 @@ function miniCardHtml(raffle){
   <div class="mini-card" data-open-detail="${raffle.id}">
     ${img}
     <div class="mini-card-body">
-      <div class="mini-card-title">${esc(raffleDisplayTitle(raffle))}</div>
+      <div class="mini-card-title">${esc(raffle.title)}</div>
       <div class="mini-card-sub">${esc(raffle.subtitle||'')}</div>
       <div class="mini-card-meta">${badge}<span>${raffle.percentFilled}% ${t('filledLbl')}</span></div>
     </div>
@@ -800,7 +803,7 @@ function renderCheckoutStep1(){
 async function submitStep1(){
   const fullName = document.getElementById('checkoutFullName').value.trim();
   const phone = document.getElementById('checkoutPhone').value.trim();
-  if (!fullName || !phone){ showToast('Please fill in your name and phone number'); return; }
+  if (!fullName || !phone){ showToast(t('fillNamePhoneMsg')); return; }
   // If this phone differs from the last saved one, drop the old
   // customerId - it belonged to that previous phone number and would
   // just cause a mismatch on the next ticket lookup. The real value for
