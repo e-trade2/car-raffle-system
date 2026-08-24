@@ -838,11 +838,6 @@ async function submitStep1(){
 function renderCheckoutStep2(banks){
   document.getElementById('checkoutTitle').textContent = t('orderPaymentTitle');
   document.getElementById('checkoutBody').innerHTML = `
-    <div class="summary-card">
-      <div class="summary-row"><span>Total</span><b>${checkoutOrder.total.toLocaleString()} Birr</b></div>
-      <div class="order-id-chip">Order #${checkoutOrder.id}</div>
-      <div class="order-id-chip">Tickets: #${checkoutOrder.ticketNumbers.join(', #')}</div>
-    </div>
     <div style="font-size:12.5px;color:var(--text-secondary);font-weight:600;margin-bottom:8px;">${t('banksLbl')}</div>
     <div id="banksList">
       ${banks.map(b=>`
@@ -857,12 +852,6 @@ function renderCheckoutStep2(banks){
           </div>
         </div>`).join('')}
     </div>
-    <div class="upload-box" id="uploadBox">
-      <div class="upload-icon" id="uploadIcon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 15V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 8l5-5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 16v2a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <div id="uploadHintText" class="upload-hint-text">${t('uploadHint')}</div>
-      <img id="uploadPreview" class="upload-preview" style="display:none;">
-    </div>
-    <input type="file" id="receiptInput" accept="image/*" style="display:none;">
   `;
   document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep2Next"><span class="step-badge step-9">9</span><span class="btn-label">${t('submitPaymentLbl')} →</span></button>`;
 
@@ -892,34 +881,15 @@ function renderCheckoutStep2(banks){
       }).catch(()=> showToast('Could not copy'));
     });
   });
-  const uploadBox = document.getElementById('uploadBox');
-  const receiptInput = document.getElementById('receiptInput');
-  uploadBox.addEventListener('click', ()=> receiptInput.click());
-  receiptInput.addEventListener('change', ()=>{
-    const file = receiptInput.files[0];
-    if (!file) return;
-    receiptFile = file;
-    uploadBox.classList.add('has-file');
-    document.getElementById('uploadIcon').innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    document.getElementById('uploadHintText').textContent = file.name;
-    const reader = new FileReader();
-    reader.onload = e=>{
-      const img = document.getElementById('uploadPreview');
-      img.src = e.target.result; img.style.display = 'block';
-    };
-    reader.readAsDataURL(file);
-  });
   document.getElementById('checkoutStep2Next').addEventListener('click', submitStep2);
 }
 
 async function submitStep2(){
-  if (!receiptFile){ showToast('Please upload your payment receipt'); return; }
   const btn = document.getElementById('checkoutStep2Next');
   const btnLabel = btn.querySelector('.btn-label');
   btn.disabled = true; btnLabel.textContent = '...';
   try{
     const fd = new FormData();
-    fd.append('receipt', receiptFile);
     if (selectedBankId) fd.append('bankId', selectedBankId);
     const res = await fetch(`${API}/orders/${checkoutOrder.id}/payment`, { method:'POST', body: fd });
     const data = await res.json();
