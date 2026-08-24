@@ -359,7 +359,7 @@ async function loadRaffles(){
     wrap.innerHTML = data.raffles.map(r=> `
       <div class="raffle-item">
         <div>
-          <div style="font-weight:700;">${esc(r.title)} <span style="color:var(--text-tertiary);font-weight:400;">${esc(r.subtitle||'')}</span></div>
+          <div style="font-weight:700;">${r.raffleNumber ? `#${r.raffleNumber} · ` : ''}${esc(r.title)} <span style="color:var(--text-tertiary);font-weight:400;">${esc(r.subtitle||'')}</span></div>
           <div style="font-size:12px;color:var(--text-tertiary);">${r.price.toLocaleString()} Birr · ${r.soldCount}/${r.totalNumbers} sold · ${esc(r.status)}</div>
           <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;">
             Draw date: <span data-drawlabel="${r.id}">${r.drawAt ? new Date(r.drawAt).toLocaleString() : '—'}</span>
@@ -390,6 +390,7 @@ async function loadRaffles(){
         </div>
         <div class="raffle-edit-form" data-editform="${r.id}" style="display:none;">
           <div class="grid2">
+            <div><label>Raffle Number</label><input type="number" min="1" step="1" data-edit-rafflenumber="${r.id}" value="${r.raffleNumber||''}"></div>
             <div><label>Title</label><input type="text" data-edit-title="${r.id}" value="${esc(r.title)}"></div>
             <div><label>Subtitle / Color</label><input type="text" data-edit-subtitle="${r.id}" value="${esc(r.subtitle||'')}"></div>
             <div><label>Ticket Price (Birr)</label><input type="number" data-edit-price="${r.id}" value="${r.price}"></div>
@@ -447,16 +448,17 @@ async function loadRaffles(){
     }));
     wrap.querySelectorAll('[data-savebtn]').forEach(b=> b.addEventListener('click', async ()=>{
       const id = b.dataset.savebtn;
+      const raffleNumber = wrap.querySelector(`[data-edit-rafflenumber="${id}"]`).value;
       const title = wrap.querySelector(`[data-edit-title="${id}"]`).value.trim();
       const subtitle = wrap.querySelector(`[data-edit-subtitle="${id}"]`).value.trim();
       const price = wrap.querySelector(`[data-edit-price="${id}"]`).value;
       const totalNumbers = wrap.querySelector(`[data-edit-totalnumbers="${id}"]`).value;
       const badge = wrap.querySelector(`[data-edit-badge="${id}"]`).value;
       const rating = wrap.querySelector(`[data-edit-rating="${id}"]`).value;
-      if (!title || !price || !totalNumbers){ alert('Title, price, and total numbers are required'); return; }
+      if (!raffleNumber || !title || !price || !totalNumbers){ alert('Raffle number, title, price, and total numbers are required'); return; }
       b.disabled = true;
       try{
-        await api(`/raffles/${id}`, { method:'PUT', body: JSON.stringify({ title, subtitle, price, totalNumbers, badge, rating }) });
+        await api(`/raffles/${id}`, { method:'PUT', body: JSON.stringify({ raffleNumber, title, subtitle, price, totalNumbers, badge, rating }) });
         loadRaffles(); loadSummary();
       }catch(e){ alert(e.message); }
       finally{ b.disabled = false; }
@@ -524,6 +526,7 @@ document.getElementById('newImageFile').addEventListener('change', (e)=>{
 
 document.getElementById('createRaffleBtn').addEventListener('click', async ()=>{
   const body = {
+    raffleNumber: document.getElementById('newRaffleNumber').value,
     title: document.getElementById('newTitle').value.trim(),
     subtitle: document.getElementById('newSubtitle').value.trim(),
     price: document.getElementById('newPrice').value,
@@ -533,7 +536,7 @@ document.getElementById('createRaffleBtn').addEventListener('click', async ()=>{
     badge: document.getElementById('newBadge').value,
     rating: document.getElementById('newRating').value
   };
-  if (!body.title || !body.price || !body.totalNumbers){ alert('Title, price, and total numbers are required'); return; }
+  if (!body.raffleNumber || !body.title || !body.price || !body.totalNumbers){ alert('Raffle number, title, price, and total numbers are required'); return; }
   const fileInput = document.getElementById('newImageFile');
   try{
     // Photo is entirely optional. If the admin picked a file, upload it and
@@ -547,7 +550,7 @@ document.getElementById('createRaffleBtn').addEventListener('click', async ()=>{
       body.imageUrl = uploaded.imageUrl;
     }
     await api('/raffles', { method:'POST', body: JSON.stringify(body) });
-    ['newTitle','newSubtitle','newPrice','newTotalNumbers','newImageUrl','newDrawAt'].forEach(id=> document.getElementById(id).value='');
+    ['newRaffleNumber','newTitle','newSubtitle','newPrice','newTotalNumbers','newImageUrl','newDrawAt'].forEach(id=> document.getElementById(id).value='');
     fileInput.value = '';
     document.getElementById('newImagePreviewWrap').style.display = 'none';
     loadRaffles(); loadSummary();
