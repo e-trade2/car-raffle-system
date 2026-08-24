@@ -49,6 +49,8 @@ const TEXT = {
     orderConfirmTitle:"Confirm your order", orderPaymentTitle:"Payment",
     orderStatusTitle:"Order submitted",
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
+    fullNamePlaceholder:"Enter your full name",
+    stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
@@ -78,6 +80,8 @@ const TEXT = {
     orderConfirmTitle:"ትዕዛዝዎን ያረጋግጡ", orderPaymentTitle:"ክፍያ",
     orderStatusTitle:"ትዕዛዝ ገብቷል",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
+    fullNamePlaceholder:"ሙሉ ስምዎን ያስገቡ",
+    stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
@@ -107,6 +111,8 @@ const TEXT = {
     orderConfirmTitle:"Bitta Xumuri", orderPaymentTitle:"Bitta Xumuri",
     orderStatusTitle:"Ajajni ergameera",
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
+    fullNamePlaceholder:"Maqaa keessan guutuu galchaa",
+    stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Suura ragaa fe'uuf tuqi",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
@@ -716,7 +722,7 @@ function setStepBars(step){
     if (n < step) bar.classList.add('done');
     if (n === step) bar.classList.add('active');
   });
-  document.getElementById('checkoutStepLbl').textContent = `Step ${step} of 3`;
+  document.getElementById('checkoutStepLbl').textContent = t('stepOfLbl').replace('{n}', step).replace('{total}', 3);
 }
 
 function renderCheckoutStep1(){
@@ -725,14 +731,26 @@ function renderCheckoutStep1(){
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
       <div style="font-weight:700;margin-bottom:4px;">${esc(currentRaffle.title)}</div>
-      <div class="summary-row"><span>${qty} × ${currentRaffle.price.toLocaleString()} Birr</span></div>
+      <div class="summary-row"><span>${qty} ${t('ticketsUnitLbl')} × ${currentRaffle.price.toLocaleString()} Birr</span></div>
       <div class="summary-total">${total.toLocaleString()} Birr</div>
       ${checkoutMode === 'manual' && selectedNumbers.length ? `<div class="order-id-chip">#${selectedNumbers.join(', #')}</div>` : `<div class="order-id-chip">Random numbers will be assigned</div>`}
     </div>
-    <div class="field"><label>${t('fullNameLbl')}</label><input type="text" id="checkoutFullName" placeholder="${t('fullNameLbl')}" value="${esc(localStorage.getItem('fullName')||'')}"></div>
-    <div class="field"><label>${t('phoneLbl')}</label><input type="tel" id="checkoutPhone" placeholder="e.g. 251912345678" value="${esc(localStorage.getItem('phone')||'')}"></div>
+    <div class="field">
+      <label>${t('fullNameLbl')}</label>
+      <div class="field-input-wrap">
+        <span class="field-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-3.6 3.6-6.5 8-6.5s8 2.9 8 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+        <input type="text" id="checkoutFullName" placeholder="${t('fullNamePlaceholder')}" value="${esc(localStorage.getItem('fullName')||'')}">
+      </div>
+    </div>
+    <div class="field">
+      <label>${t('phoneLbl')}</label>
+      <div class="field-input-wrap">
+        <span class="field-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.5 21 3 13.5 3 4.9c0-.6.4-1 1-1h3.4c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.4 0 .8-.2 1L6.6 10.8Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <input type="tel" id="checkoutPhone" placeholder="e.g. 251912345678" value="${esc(localStorage.getItem('phone')||'')}">
+      </div>
+    </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-6">6</span><span class="btn-label">${t('continueLbl')} →</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-6">6</span><span class="btn-label">${t('continueLbl')}</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   document.getElementById('checkoutStep1Next').addEventListener('click', submitStep1);
 }
 
@@ -761,13 +779,13 @@ async function submitStep1(){
       })
     });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not create order'); btn.disabled=false; btnLabel.textContent = t('continueLbl')+' →'; return; }
+    if (!res.ok){ showToast(data.error || 'Could not create order'); btn.disabled=false; btnLabel.textContent = t('continueLbl'); return; }
     checkoutOrder = data.order;
     localStorage.setItem('customerId', checkoutOrder.customerId);
     renderCheckoutStep2(data.banks);
     setStepBars(2);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent = t('continueLbl')+' →';
+    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent = t('continueLbl');
   }
 }
 
