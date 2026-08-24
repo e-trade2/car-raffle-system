@@ -112,6 +112,7 @@ function publicRaffle(raffle) {
   const remaining = raffle.totalNumbers - soldCount - pendingCount;
   return {
     id: raffle.id,
+    raffleNumber: raffle.raffleNumber,
     title: raffle.title,
     subtitle: raffle.subtitle,
     imageUrl: raffle.imageUrl,
@@ -136,11 +137,12 @@ function publicRaffle(raffle) {
   };
 }
 
-function randomAvailableNumbers(raffle, qty) {
+function randomAvailableNumbers(raffle, qty, exclude) {
   const { taken, pendingNums } = getAvailability(raffle);
+  const excludeSet = exclude && exclude.length ? new Set(exclude) : null;
   const pool = [];
   for (let i = 1; i <= raffle.totalNumbers; i++) {
-    if (!taken.has(i) && !pendingNums.has(i)) pool.push(i);
+    if (!taken.has(i) && !pendingNums.has(i) && !(excludeSet && excludeSet.has(i))) pool.push(i);
   }
   // shuffle (Fisher-Yates) then take qty. Uses crypto.randomInt rather than
   // Math.random() - Math.random() isn't a CSPRNG, and "which numbers you're
