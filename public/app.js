@@ -75,7 +75,7 @@ const TEXT = {
     stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
     ticketsLbl:"Tickets", ticketNumbersLbl:"Ticket Numbers", totalLbl:"Total", itemLbl:"Item",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
-    uploadHint:"Tap to upload your payment receipt",
+    uploadHint:"Tap to upload your payment receipt", uploadSizeHint:"PNG or JPG up to 10MB",
     senderAccountLbl:"Sent from account number (optional)",
     senderAccountPlaceholder:"Account you sent money from",
     waitingApproval:"Your order is awaiting admin approval. We'll notify you once confirmed.",
@@ -115,7 +115,7 @@ const TEXT = {
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
     ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ", itemLbl:"ዕቃ",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
-    uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
+    uploadHint:"የክፍያ ማረጋገጫ ያስገቡ", uploadSizeHint:"PNG ወይም JPG እስከ 10MB",
     senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
     senderAccountPlaceholder:"ገንዘብ የላኩበት ሂሳብ",
     waitingApproval:"ትዕዛዝዎ በአስተዳዳሪ እየተጠበቀ ነው። ሲረጋገጥ እናሳውቅዎታለን።",
@@ -155,7 +155,7 @@ const TEXT = {
     stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
     ticketsLbl:"Tiketeewwan", ticketNumbersLbl:"Lakkoofsa Tiketii", totalLbl:"Waliigala", itemLbl:"Meeshaa",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
-    uploadHint:"Suura ragaa fe'uuf tuqi",
+    uploadHint:"Suura ragaa fe'uuf tuqi", uploadSizeHint:"PNG ykn JPG hanga 10MB",
     senderAccountLbl:"Herrega irraa erge (filatamaa)",
     senderAccountPlaceholder:"Herrega maallaqa irraa ergitan",
     waitingApproval:"Ajajni keessan mirkaneeffannaa admin eegaa jira. Yeroo mirkanaa'utti isin beeksisna.",
@@ -898,6 +898,7 @@ function renderCheckoutStep2(banks){
     <div class="upload-box" id="uploadBox">
       <div class="upload-icon" id="uploadIcon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 15V4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 8l5-5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 16v2a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div id="uploadHintText" class="upload-hint-text">${t('uploadHint')}</div>
+      <div id="uploadSizeHint" class="upload-size-hint">${t('uploadSizeHint')}</div>
       <img id="uploadPreview" class="upload-preview" style="display:none;">
       <div id="uploadSenderTag" class="upload-sender-tag" style="display:none;"></div>
     </div>
@@ -964,6 +965,7 @@ function renderCheckoutStep2(banks){
     uploadBox.classList.add('has-file');
     document.getElementById('uploadIcon').style.display = 'none';
     document.getElementById('uploadHintText').style.display = 'none';
+    document.getElementById('uploadSizeHint').style.display = 'none';
     const img = document.getElementById('uploadPreview');
     img.src = URL.createObjectURL(receiptFile); img.style.display = 'block';
     const tag = document.getElementById('uploadSenderTag');
@@ -978,6 +980,7 @@ function renderCheckoutStep2(banks){
     uploadBox.classList.add('has-file');
     document.getElementById('uploadIcon').style.display = 'none';
     document.getElementById('uploadHintText').style.display = 'none';
+    document.getElementById('uploadSizeHint').style.display = 'none';
     const reader = new FileReader();
     reader.onload = e=>{
       const img = document.getElementById('uploadPreview');
