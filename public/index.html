@@ -254,12 +254,13 @@
   .copy-account-btn:hover{ color:var(--accent-gold); border-color:var(--accent-gold); }
   .copy-account-btn.copied{ color:var(--accent-gold); border-color:var(--accent-gold); }
 
-  .upload-box{ position:relative; overflow:hidden; border:2px dashed var(--border-gold); border-radius:16px; padding:34px 16px; text-align:center; cursor:pointer; margin-top:14px; color:var(--text-secondary); font-size:14px; background:rgba(245,183,49,0.05); transition:background .15s, border-color .15s; min-height:200px; display:flex; align-items:center; justify-content:center; }
+  .upload-box{ position:relative; overflow:hidden; border:2px dashed var(--border-gold); border-radius:16px; padding:34px 16px; text-align:center; cursor:pointer; margin-top:14px; color:var(--text-secondary); font-size:14px; background:rgba(245,183,49,0.05); transition:background .15s, border-color .15s; min-height:200px; display:flex; flex-direction:column; align-items:center; justify-content:center; }
   .upload-box:active{ background:rgba(245,183,49,0.09); }
   .upload-box.has-file{ border-style:solid; border-color:var(--accent-green); padding:0; }
-  .upload-icon{ width:56px; height:56px; border-radius:50%; background:rgba(245,183,49,0.14); color:var(--accent-gold); display:flex; align-items:center; justify-content:center; margin:0 auto 14px; }
+  .upload-icon{ width:52px; height:52px; border-radius:14px; background:rgba(245,183,49,0.14); color:var(--accent-gold); display:flex; align-items:center; justify-content:center; margin:0 auto 14px; }
   .upload-box.has-file .upload-icon{ background:rgba(34,197,94,0.16); color:var(--accent-green); }
   .upload-hint-text{ font-weight:700; font-size:14.5px; }
+  .upload-size-hint{ font-size:12px; color:var(--text-tertiary); margin-top:6px; }
   .upload-preview{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:14px; }
   .upload-sender-tag{ position:absolute; left:0; right:0; bottom:0; padding:10px 14px; font-size:12.5px; font-weight:700; color:#fff; text-align:left; background:linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0)); }
 
