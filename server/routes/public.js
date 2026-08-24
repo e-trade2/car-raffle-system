@@ -354,6 +354,7 @@ router.post('/orders/:id/payment', (req, res, next) => {
     }
 
     order.bankSelected = req.body.bankId || null;
+    order.senderAccount = req.body.senderAccount || null;
     order.status = 'pending'; // now awaiting admin approval
     order.submittedAt = new Date().toISOString();
 
