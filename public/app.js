@@ -73,6 +73,7 @@ const TEXT = {
     fillNameMsg:"Please enter your full name",
     fillPhoneMsg:"Please enter your phone number",
     stepOfLbl:"Step {n} of {total}", ticketsUnitLbl:"tickets",
+    ticketsLbl:"Tickets", ticketNumbersLbl:"Ticket Numbers", totalLbl:"Total",
     continueLbl:"Continue", submitPaymentLbl:"Submit Payment",
     uploadHint:"Tap to upload your payment receipt",
     senderAccountLbl:"Sent from account number (optional)",
@@ -111,6 +112,7 @@ const TEXT = {
     fillNameMsg:"እባክዎ ሙሉ ስምዎን ያስገቡ",
     fillPhoneMsg:"እባክዎ ስልክ ቁጥርዎን ያስገቡ",
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
+    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ",
     senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
@@ -149,6 +151,7 @@ const TEXT = {
     fillNameMsg:"Maaloo maqaa keessan guutuu galchaa",
     fillPhoneMsg:"Maaloo lakkoofsa bilbilaa keessan galchaa",
     stepOfLbl:"Tarkaanfii {n} keessaa {total}", ticketsUnitLbl:"tiketeewwan",
+    ticketsLbl:"Tiketeewwan", ticketNumbersLbl:"Lakkoofsa Tiketii", totalLbl:"Waliigala",
     continueLbl:"Itti Fufi", submitPaymentLbl:"Kaffaltii Ergi",
     uploadHint:"Suura ragaa fe'uuf tuqi",
     senderAccountLbl:"Herrega irraa erge (filatamaa)",
@@ -987,14 +990,15 @@ function renderCheckoutReview(banks){
   const receiptUrl = receiptFile ? URL.createObjectURL(receiptFile) : '';
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
-      <div style="font-weight:700;margin-bottom:4px;">${esc(checkoutSummaryTitle(currentRaffle))}</div>
-      <div class="summary-row"><span>${checkoutOrder.quantity} ${t('ticketsUnitLbl')} × ${checkoutOrder.unitPrice.toLocaleString()} Birr</span></div>
-      <div class="order-id-chip">#${checkoutOrder.ticketNumbers.join(', #')}</div>
-      <div class="summary-row" style="margin-top:10px;"><span>${t('fullNameLbl')}</span><b>${esc(checkoutOrder.fullName)}</b></div>
+      <div style="font-weight:700;margin-bottom:10px;">${esc(checkoutSummaryTitle(currentRaffle))}</div>
+      <div class="summary-row"><span>${t('ticketsLbl')}</span><b>${checkoutOrder.quantity} × ${checkoutOrder.unitPrice.toLocaleString()} Birr</b></div>
+      <div class="summary-row"><span>${t('ticketNumbersLbl')}</span><b>#${checkoutOrder.ticketNumbers.join(', #')}</b></div>
+      <div class="summary-row"><span>${t('fullNameLbl')}</span><b>${esc(checkoutOrder.fullName)}</b></div>
       <div class="summary-row"><span>${t('phoneLbl')}</span><b>${esc(checkoutOrder.phone)}</b></div>
       ${bank ? `<div class="summary-row"><span>${t('bankLbl')}</span><b>${esc(bank.name)}</b></div>` : ''}
       ${senderAccount ? `<div class="summary-row"><span>${t('senderAccountLbl')}</span><b>${esc(senderAccount)}</b></div>` : ''}
-      <div class="summary-total">${checkoutOrder.total.toLocaleString()} Birr</div>
+      <div class="summary-divider"></div>
+      <div class="summary-row summary-row-total"><span>${t('totalLbl')}</span><b>${checkoutOrder.total.toLocaleString()} Birr</b></div>
     </div>
     <div style="font-size:12.5px;color:var(--text-secondary);font-weight:600;margin-bottom:8px;">${t('uploadHint')}</div>
     <div class="upload-box has-file" style="cursor:default;">
