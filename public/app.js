@@ -45,7 +45,7 @@ const TEXT = {
     navHome:"Home", navTickets:"Tickets", navProfile:"Profile",
     myTicketsTitle:"My Tickets",
     toastSoon:"Coming soon", toastPicked:"numbers selected",
-    confirmSelection:"Confirm Selection",
+    confirmSelection:"Confirm Selection", selectNumberLbl:"Select Number", doneLbl:"Done",
     orderConfirmTitle:"Confirm your order", orderPaymentTitle:"Payment",
     orderStatusTitle:"Order submitted",
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
@@ -58,7 +58,7 @@ const TEXT = {
     notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
     noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
     wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
-    legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendReservedLbl:"Reserved", legendFreeLbl:"Free",
+    legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendFreeLbl:"Free",
     announcementsLbl:"Announcements", noAnnouncementsLbl:"No announcements yet",
     lotteryLbl:"Lottery", winningTicketLbl:"Winning Ticket", prizeLbl:"Prize",
     tabAllLbl:"All", tabFeaturedLbl:"Featured", tabNewLbl:"New",
@@ -76,7 +76,7 @@ const TEXT = {
     navHome:"መነሻ", navTickets:"ትኬቶች", navProfile:"መገለጫ",
     myTicketsTitle:"የኔ ትኬቶች",
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
-    confirmSelection:"ምርጫ አረጋግጥ",
+    confirmSelection:"ምርጫ አረጋግጥ", selectNumberLbl:"ቁጥር ምረጥ", doneLbl:"ተጠናቋል",
     orderConfirmTitle:"ትዕዛዝዎን ያረጋግጡ", orderPaymentTitle:"ክፍያ",
     orderStatusTitle:"ትዕዛዝ ገብቷል",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
@@ -89,7 +89,7 @@ const TEXT = {
     notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
     noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
     wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
-    legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendReservedLbl:"የተጠበቀ", legendFreeLbl:"ክፍት",
+    legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendFreeLbl:"ክፍት",
     announcementsLbl:"ማስታወቂያዎች", noAnnouncementsLbl:"እስካሁን ምንም ማስታወቂያ የለም",
     lotteryLbl:"ሎተሪ", winningTicketLbl:"አሸናፊ ትኬት", prizeLbl:"ሽልማት",
     tabAllLbl:"ሁሉም", tabFeaturedLbl:"ተመራጭ", tabNewLbl:"አዲስ",
@@ -107,7 +107,7 @@ const TEXT = {
     navHome:"Home", navTickets:"Tikeetii", navProfile:"Proofaayilii",
     myTicketsTitle:"Tikeetii Koo",
     toastSoon:"Dhiyootti ni dhufa", toastPicked:"lakkoofsi filatame",
-    confirmSelection:"Filannoo Mirkaneessi",
+    confirmSelection:"Filannoo Mirkaneessi", selectNumberLbl:"Lakkoofsa Filadhu", doneLbl:"Xumuri",
     orderConfirmTitle:"Bitta Xumuri", orderPaymentTitle:"Bitta Xumuri",
     orderStatusTitle:"Ajajni ergameera",
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
@@ -120,7 +120,7 @@ const TEXT = {
     notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
     noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
     wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
-    legendSelectedLbl:"Filatame", legendTakenLbl:"Gurgurame", legendReservedLbl:"Eegame", legendFreeLbl:"Jira",
+    legendSelectedLbl:"Filatame", legendTakenLbl:"Gurgurame", legendFreeLbl:"Jira",
     announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
     lotteryLbl:"Lootarii", winningTicketLbl:"Tikeetii Injifate", prizeLbl:"Badhaasa",
     tabAllLbl:"Hunda", tabFeaturedLbl:"Filatamoo", tabNewLbl:"Haaraa",
@@ -608,10 +608,25 @@ async function openNumberPicker(){
   if (!currentRaffle) return;
   document.getElementById('numGrid').innerHTML = '';
   document.getElementById('pickNumTitle').textContent = t('pickLabel');
-  document.getElementById('numberModalConfirm').textContent = t('confirmSelection');
+  updateNumberModalConfirmBtn();
   updatePickSub();
   document.getElementById('numberModalBackdrop').classList.add('show');
   await loadAllNumbers();
+}
+
+// Confirm button starts as a muted "Select Number" state; once at least one
+// number is picked it flips to the green "Done" (step 6) state, matching
+// the numbered step badges used throughout the rest of the buy flow.
+function updateNumberModalConfirmBtn(){
+  const btn = document.getElementById('numberModalConfirm');
+  if (!btn) return;
+  if (selectedNumbers.length){
+    btn.classList.add('ready');
+    btn.innerHTML = `<span class="step-badge step-6">6</span><span>${t('doneLbl')}</span>`;
+  } else {
+    btn.classList.remove('ready');
+    btn.innerHTML = `<span>${t('selectNumberLbl')}</span>`;
+  }
 }
 
 function updatePickSub(){
@@ -668,6 +683,7 @@ function toggleNumber(n, cell){
     cell.classList.add('selected');
   }
   updatePickSub();
+  updateNumberModalConfirmBtn();
 }
 
 document.getElementById('numberModalClose').addEventListener('click', ()=>{
