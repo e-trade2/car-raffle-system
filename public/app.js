@@ -1054,9 +1054,6 @@ function renderCheckoutStep4(){
       </div>
       <div class="status-title">${t('orderSentTitle')}</div>
       <div style="color:var(--text-secondary);font-size:13.5px;line-height:1.5;">${t('orderSentMsg').replace('{id}', checkoutOrder.id)}</div>
-      <div class="order-id-chip" style="margin-top:14px;">Tickets: #${checkoutOrder.ticketNumbers.join(', #')}</div>
-      <div class="order-id-chip" style="margin-top:8px;background:var(--accent-gold);color:#241a02;font-weight:700;">Your Customer ID: ${esc(checkoutOrder.customerId)}</div>
-      <div style="color:var(--text-tertiary);font-size:11.5px;margin-top:6px;">Save this ID - you'll need it with your phone number to look up your tickets later.</div>
     </div>
   `;
   document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span>${t('closeLbl')}</span></button>`;
