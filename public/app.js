@@ -104,7 +104,7 @@ const TEXT = {
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
     confirmSelection:"ምርጫ አረጋግጥ", selectNumberLbl:"ቁጥር ምረጥ", doneLbl:"ጨርስ",
     orderConfirmTitle:"ግዢዎን ያጠናቁ", orderPaymentTitle:"ግዢዎን ያጠናቁ",
-    orderStatusTitle:"ትዕዛዝ ገብቷል", orderReviewTitle:"የትዕዛዝ ማጠቃለያ",
+    orderStatusTitle:"ትዕዛዝ ገብቷል", orderReviewTitle:"ግዢዎን ያጠናቁ",
     bankLbl:"ባንክ", submitOrderLbl:"ትዕዛዝ ላክ",
     reviewNoteMsg:"ትኬቶቻችሁ ይጠበቃሉ፣ ክፍያዎም በ24 ሰዓት ውስጥ ይረጋገጣል።",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
