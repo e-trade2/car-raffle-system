@@ -113,7 +113,7 @@ const TEXT = {
     fillNameMsg:"እባክዎ ሙሉ ስምዎን ያስገቡ",
     fillPhoneMsg:"እባክዎ ስልክ ቁጥርዎን ያስገቡ",
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
-    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ", itemLbl:"ዕቃ",
+    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ", itemLbl:"ዕጣ",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ", uploadSizeHint:"PNG ወይም JPG እስከ 10MB",
     senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
