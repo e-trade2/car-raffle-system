@@ -102,7 +102,7 @@ const TEXT = {
     navHome:"መነሻ", navTickets:"ትኬቶች", navProfile:"መገለጫ",
     myTicketsTitle:"የኔ ትኬቶች",
     toastSoon:"በቅርቡ ይመጣል", toastPicked:"ቁጥር ተመርጠዋል",
-    confirmSelection:"ምርጫ አረጋግጥ", selectNumberLbl:"ቁጥር ምረጥ", doneLbl:"ጨርስ",
+    confirmSelection:"ምርጫ አረጋግጥ", selectNumberLbl:"ቁጥር ምረጥ", doneLbl:"ተጠናቋል",
     orderConfirmTitle:"ትዕዛዝዎን ያረጋግጡ", orderPaymentTitle:"ክፍያ",
     orderStatusTitle:"ትዕዛዝ ገብቷል", orderReviewTitle:"የትዕዛዝ ማጠቃለያ",
     bankLbl:"ባንክ", submitOrderLbl:"ትዕዛዝ ላክ",
@@ -113,7 +113,7 @@ const TEXT = {
     fillNameMsg:"እባክዎ ሙሉ ስምዎን ያስገቡ",
     fillPhoneMsg:"እባክዎ ስልክ ቁጥርዎን ያስገቡ",
     stepOfLbl:"ደረጃ {n} ከ {total}", ticketsUnitLbl:"ቲኬቶች",
-    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ", itemLbl:"ዕጣ",
+    ticketsLbl:"ቲኬቶች", ticketNumbersLbl:"የተመረጡ ቁጥሮች", totalLbl:"ጠቅላላ", itemLbl:"ዕቃ",
     continueLbl:"ቀጥል", submitPaymentLbl:"ክፍያ አስገባ",
     uploadHint:"የክፍያ ማረጋገጫ ያስገቡ", uploadSizeHint:"PNG ወይም JPG እስከ 10MB",
     senderAccountLbl:"የላኩበት ሂሳብ ቁጥር (አማራጭ)",
@@ -786,13 +786,24 @@ function startCheckout(mode){
 }
 
 function setStepBars(step){
-  [1,2,3,4].forEach(n=>{
+  const stepsWrap = document.querySelector('.steps');
+  const lbl = document.getElementById('checkoutStepLbl');
+  if (step >= 4){
+    // The "Order Sent" confirmation screen isn't a numbered step - hide the
+    // progress bar/label entirely instead of showing a misleading 4th step.
+    stepsWrap.style.display = 'none';
+    lbl.style.display = 'none';
+    return;
+  }
+  stepsWrap.style.display = '';
+  lbl.style.display = '';
+  [1,2,3].forEach(n=>{
     const bar = document.getElementById('stepBar'+n);
     bar.classList.remove('active','done');
     if (n < step) bar.classList.add('done');
     if (n === step) bar.classList.add('active');
   });
-  document.getElementById('checkoutStepLbl').textContent = t('stepOfLbl').replace('{n}', step).replace('{total}', 4);
+  lbl.textContent = t('stepOfLbl').replace('{n}', step).replace('{total}', 3);
 }
 
 function renderCheckoutStep1(){
@@ -1062,11 +1073,10 @@ function renderCheckoutStep4(){
     selectedNumbers = [];
     qty = 1;
     loadRaffles();
-    if (currentRaffle) openDetail(currentRaffle.id);
-    showView('ticketsView');
-    document.getElementById('ticketPhoneInput').value = checkoutOrder.phone;
-    document.getElementById('ticketCustomerIdInput').value = checkoutOrder.customerId;
-    searchTickets(checkoutOrder.phone, checkoutOrder.customerId);
+    showView('homeView');
+    document.getElementById('navTicketsItem').classList.remove('active');
+    document.getElementById('navProfileItem').classList.remove('active');
+    document.getElementById('navHomeItem').classList.add('active');
   });
 }
 
@@ -1107,6 +1117,23 @@ async function fetchLiveNumberStatuses(raffleId, nums){
   }catch(e){ console.error(e); return {}; }
 }
 
+const statusIcon = {
+  confirmed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  pending: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  awaiting_payment: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  rejected: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  expired: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+const statusFooterNote = {
+  confirmed: '🏆 Confirmed — good luck in the draw!',
+  pending: '⏳ Waiting for admin payment approval',
+  awaiting_payment: null, // has its own reserved-until note + Continue Payment button instead
+  rejected: null, // has its own released-numbers note
+  expired: null,
+};
+const statusSectionOrder = ['awaiting_payment', 'pending', 'confirmed', 'rejected', 'expired'];
+const statusSectionLabel = { awaiting_payment: 'Awaiting Payment', pending: 'Pending Tickets', confirmed: 'Confirmed Tickets', rejected: 'Rejected Tickets', expired: 'Expired Tickets' };
+
 function renderTickets(orders, counts){
   document.getElementById('ticketsActiveNum').textContent = counts.active || 0;
   document.getElementById('ticketsPendingNum').textContent = counts.pending || 0;
@@ -1116,24 +1143,40 @@ function renderTickets(orders, counts){
   if (!orders.length){ list.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
 
-  list.innerHTML = orders.map(o=> {
+  const cardHtml = o => {
     const released = o.status === 'expired' || o.status === 'rejected';
     const needsPayment = o.status === 'awaiting_payment';
+    const note = statusFooterNote[o.status];
     return `
     <div class="ticket-card">
       <div class="ticket-top">
-        <div><div style="font-weight:700;">${esc(o.raffleTitle)}</div><div style="font-size:11.5px;color:var(--text-tertiary);">Order #${esc(o.id)}</div></div>
-        <div class="ticket-status ${o.status}">${statusLabel(o.status)}</div>
+        <img class="ticket-thumb" src="${esc(o.raffleImage||'')}" onerror="this.style.visibility='hidden'">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;">${esc(o.raffleTitle)}</div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);">Order #${esc(o.id)}</div>
+        </div>
+        <div class="ticket-status ${o.status}">${statusIcon[o.status]||''}${statusLabel(o.status)}</div>
       </div>
       <div style="font-size:12.5px;color:var(--text-secondary);">${o.quantity} ticket(s) · ${o.total.toLocaleString()} Birr</div>
       ${released ? `<div style="font-size:11.5px;color:var(--accent-red);margin-top:6px;">These numbers were released back to the pool and no longer belong to you.</div>` : ''}
       ${needsPayment ? `<div style="font-size:11.5px;color:var(--accent-gold);margin-top:6px;">Reserved until ${new Date(o.reservedUntil).toLocaleTimeString()} - upload your payment receipt before then or these numbers will be released.</div>` : ''}
       <div class="ticket-nums" id="ticket-nums-${o.id}">${o.ticketNumbers.map(n=>`<span class="chip-num${released ? ' chip-num-released' : ''}">#${n}</span>`).join('')}</div>
+      ${note ? `<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);">${note}</div>` : ''}
       ${needsPayment ? `<button class="btn btn-gold" style="margin-top:12px;margin-bottom:0;" data-resumepay="${esc(o.id)}">Continue Payment →</button>` : ''}
       ${o.status === 'expired' ? `<button class="btn" style="margin-top:12px;margin-bottom:0;background:transparent;border:1px solid var(--accent-red);color:var(--accent-red);" data-deleteorder="${esc(o.id)}">Remove from my list</button>` : ''}
     </div>
   `;
-  }).join('');
+  };
+
+  const byStatus = {};
+  orders.forEach(o => { (byStatus[o.status] = byStatus[o.status] || []).push(o); });
+
+  list.innerHTML = statusSectionOrder
+    .filter(s => byStatus[s] && byStatus[s].length)
+    .map(s => `
+      <div class="ticket-section-hdr">${statusIcon[s]||''} ${statusSectionLabel[s]}</div>
+      ${byStatus[s].map(cardHtml).join('')}
+    `).join('');
 
   list.querySelectorAll('[data-resumepay]').forEach(btn=>{
     btn.addEventListener('click', ()=> resumePayment(btn.dataset.resumepay));
@@ -1207,6 +1250,9 @@ document.getElementById('ticketSearchBtn').addEventListener('click', ()=>{
   const customerId = document.getElementById('ticketCustomerIdInput').value.trim();
   searchTickets(phone, customerId);
 });
+let lastTicketsFetchAt = 0;
+const TICKETS_REFETCH_MS = 60 * 1000; // don't re-hit the lookup endpoint more than once a minute from tab switches
+
 function loadSavedPhoneIntoTickets(){
   const savedPhone = localStorage.getItem('phone');
   const savedId = localStorage.getItem('customerId');
@@ -1217,6 +1263,9 @@ function loadSavedPhoneIntoTickets(){
     document.getElementById('ticketCustomerIdInput').value = savedId;
   }
   if (savedPhone && savedId){
+    const now = Date.now();
+    if (now - lastTicketsFetchAt < TICKETS_REFETCH_MS) return;
+    lastTicketsFetchAt = now;
     searchTickets(savedPhone, savedId);
   }
 }
