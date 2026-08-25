@@ -1156,7 +1156,7 @@ function renderTickets(orders, counts){
       <div class="ticket-top">
         <img class="ticket-thumb" src="${esc(o.raffleImage||'')}" onerror="this.style.visibility='hidden'">
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:700;">${esc(o.raffleTitle)}</div>
+          <div style="font-weight:700;">${o.raffleNumber ? esc(o.raffleNumber + ' Gech Makina Equb') : esc(o.raffleTitle)}</div>
           <div style="font-family:var(--font-display);font-weight:700;color:var(--accent-gold);font-size:16px;margin-top:2px;">#${o.ticketNumbers.join(', #')}</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">${new Date(o.createdAt).toLocaleDateString()}</div>
         </div>
