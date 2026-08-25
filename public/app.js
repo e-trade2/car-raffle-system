@@ -791,22 +791,18 @@ function startCheckout(mode){
 function setStepBars(step){
   const stepsWrap = document.querySelector('.steps');
   const lbl = document.getElementById('checkoutStepLbl');
-  if (step >= 4){
-    // The "Order Sent" confirmation screen isn't a numbered step - hide the
-    // progress bar/label entirely instead of showing a misleading 4th step.
-    stepsWrap.style.display = 'none';
-    lbl.style.display = 'none';
-    return;
-  }
   stepsWrap.style.display = '';
   lbl.style.display = '';
+  // The "Order Sent" confirmation screen isn't a separate numbered step -
+  // show it as step 3 of 3, fully complete, instead of hiding the bar.
+  const shownStep = Math.min(step, 3);
   [1,2,3].forEach(n=>{
     const bar = document.getElementById('stepBar'+n);
     bar.classList.remove('active','done');
-    if (n < step) bar.classList.add('done');
-    if (n === step) bar.classList.add('active');
+    if (n < shownStep) bar.classList.add('done');
+    if (n === shownStep) bar.classList.add('active');
   });
-  lbl.textContent = t('stepOfLbl').replace('{n}', step).replace('{total}', 3);
+  lbl.textContent = t('stepOfLbl').replace('{n}', shownStep).replace('{total}', 3);
 }
 
 function renderCheckoutStep1(){
@@ -1062,15 +1058,15 @@ async function submitPayment(){
 function renderCheckoutStep4(){
   document.getElementById('checkoutTitle').textContent = t('orderStatusTitle');
   document.getElementById('checkoutBody').innerHTML = `
-    <div class="status-card">
-      <div class="status-icon success">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="status-card status-card-success">
+      <div class="status-icon success status-icon-lg">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div class="status-title">${t('orderSentTitle')}</div>
       <div style="color:var(--text-secondary);font-size:13.5px;line-height:1.5;">${t('orderSentMsg').replace('{id}', checkoutOrder.id)}</div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-outline" id="checkoutDone"><span>${t('closeLbl')}</span></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-success-done" id="checkoutDone"><span>${t('closeLbl')}</span></button>`;
   document.getElementById('checkoutDone').addEventListener('click', ()=>{
     document.getElementById('checkoutModalBackdrop').classList.remove('show');
     selectedNumbers = [];
