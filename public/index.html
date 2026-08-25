@@ -293,10 +293,7 @@
   .phone-search-fields input#ticketCustomerIdInput{ width:90px; text-align:center; border-left:1px solid rgba(0,0,0,0.12); text-transform:uppercase; }
   .phone-search button{ background:var(--accent-gold); color:#241a02; border:none; border-radius:12px; padding:0 18px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; }
   .stat-row{ display:flex; gap:10px; padding:0 14px 16px; }
-  .stat-box{ flex:1; background:var(--bg-card); border:1px solid var(--border-subtle); border-top:3px solid var(--border-subtle); border-radius:12px; text-align:center; padding:14px 6px; }
-  .stat-box.stat-green{ border-top-color:var(--accent-green); }
-  .stat-box.stat-gold{ border-top-color:var(--accent-gold); }
-  .stat-box.stat-neutral{ border-top-color:#8a5a3a; }
+  .stat-box{ flex:1; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:12px; text-align:center; padding:14px 6px; }
   .stat-num{ font-family:var(--font-display); font-weight:700; font-size:20px; }
   .stat-num.green{ color:var(--accent-green); }
   .stat-num.gold{ color:var(--accent-gold); }
@@ -380,9 +377,9 @@
       <button id="ticketSearchBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2.2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Search</button>
     </div>
     <div class="stat-row">
-      <div class="stat-box stat-green"><div class="stat-num green" id="ticketsActiveNum">0</div><div class="stat-lbl">Active</div></div>
-      <div class="stat-box stat-gold"><div class="stat-num gold" id="ticketsPendingNum">0</div><div class="stat-lbl">Pending</div></div>
-      <div class="stat-box stat-neutral"><div class="stat-num" id="ticketsTotalNum">0</div><div class="stat-lbl">Total</div></div>
+      <div class="stat-box"><div class="stat-num green" id="ticketsActiveNum">0</div><div class="stat-lbl">Active</div></div>
+      <div class="stat-box"><div class="stat-num gold" id="ticketsPendingNum">0</div><div class="stat-lbl">Pending</div></div>
+      <div class="stat-box"><div class="stat-num" id="ticketsTotalNum">0</div><div class="stat-lbl">Total</div></div>
     </div>
     <div id="ticketsList"></div>
     <div class="empty" id="ticketsEmpty">
