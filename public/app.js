@@ -561,7 +561,7 @@ function renderDetail(raffle){
         ${carHtml(raffle)}
       </div>
       <div class="hero-body">
-        <div class="car-title">${esc(raffleDisplayTitle(raffle))}</div>
+        <div class="car-title">${esc(raffle.title)}</div>
         <div class="car-sub">${esc(raffle.subtitle||'')}</div>
         <div class="countdown-label">🔥 <span>${t('cdLabel')}</span></div>
         <div class="countdown" data-raffle="${raffle.id}">
