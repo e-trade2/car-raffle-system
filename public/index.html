@@ -286,9 +286,12 @@
   .chip-live-taken em{ color:var(--accent-red); }
   .chip-live-pending em{ color:var(--accent-orange); }
 
-  .phone-search{ display:flex; gap:8px; padding:0 14px 16px; }
-  .phone-search input{ flex:1; background:var(--bg-well); border:1px solid var(--border-subtle); border-radius:12px; padding:13px 14px; color:var(--text-primary); font-size:14px; }
-  .phone-search button{ background:var(--accent-gold); color:#241a02; border:none; border-radius:12px; padding:0 18px; font-weight:700; cursor:pointer; }
+  .phone-search{ display:flex; gap:8px; padding:0 14px 16px; align-items:stretch; }
+  .phone-search-fields{ flex:1; display:flex; background:#ffffff; border-radius:12px; overflow:hidden; }
+  .phone-search-fields input{ background:transparent; border:none; padding:13px 14px; color:#1a1a1a; font-size:14px; min-width:0; }
+  .phone-search-fields input#ticketPhoneInput{ flex:1; }
+  .phone-search-fields input#ticketCustomerIdInput{ width:90px; text-align:center; border-left:1px solid rgba(0,0,0,0.12); text-transform:uppercase; }
+  .phone-search button{ background:var(--accent-gold); color:#241a02; border:none; border-radius:12px; padding:0 18px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; }
   .stat-row{ display:flex; gap:10px; padding:0 14px 16px; }
   .stat-box{ flex:1; background:var(--bg-card); border:1px solid var(--border-subtle); border-top:3px solid var(--border-subtle); border-radius:12px; text-align:center; padding:14px 6px; }
   .stat-box.stat-green{ border-top-color:var(--accent-green); }
@@ -370,11 +373,12 @@
   <div id="ticketsView" class="view" style="display:none;">
     <div class="section-head"><div class="section-title" id="myTicketsTitle">My Tickets</div></div>
     <div class="phone-search">
-      <input type="tel" id="ticketPhoneInput" placeholder="Phone number">
-      <input type="text" id="ticketCustomerIdInput" placeholder="Customer ID" style="max-width:120px;text-transform:uppercase;">
-      <button id="ticketSearchBtn">Search</button>
+      <div class="phone-search-fields">
+        <input type="tel" id="ticketPhoneInput" placeholder="Phone number">
+        <input type="text" id="ticketCustomerIdInput" placeholder="ID" style="text-transform:uppercase;">
+      </div>
+      <button id="ticketSearchBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2.2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Search</button>
     </div>
-    <div class="empty-sub" style="padding:0 14px 10px;">You got your Customer ID when you placed your first order - it's required along with your phone number.</div>
     <div class="stat-row">
       <div class="stat-box stat-green"><div class="stat-num green" id="ticketsActiveNum">0</div><div class="stat-lbl">Active</div></div>
       <div class="stat-box stat-gold"><div class="stat-num gold" id="ticketsPendingNum">0</div><div class="stat-lbl">Pending</div></div>
