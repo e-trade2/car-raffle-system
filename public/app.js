@@ -1154,6 +1154,7 @@ function renderTickets(orders, counts){
         <div style="flex:1;min-width:0;">
           <div style="font-weight:700;">${esc(o.raffleTitle)}</div>
           <div style="font-size:11.5px;color:var(--text-tertiary);">Order #${esc(o.id)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">${new Date(o.createdAt).toLocaleDateString()}</div>
         </div>
         <div class="ticket-status ${o.status}">${statusIcon[o.status]||''}${statusLabel(o.status)}</div>
       </div>
