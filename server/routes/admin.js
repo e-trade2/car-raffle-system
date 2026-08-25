@@ -8,7 +8,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers, maskWinnerName } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
-const { notifyCustomer, sendTelegramMessage } = require('../telegram');
+const { notifyCustomer, notifyAdmin, findChatIdByUsername, sendTelegramMessage } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
@@ -181,7 +181,12 @@ router.get('/me', (req, res) => {
   const data = db.load();
   const admin = data.admins.find(a => a.id === req.session.adminId);
   if (!admin) return res.status(401).json({ error: 'Not authenticated' });
-  res.json({ username: admin.username, email: admin.email || null });
+  res.json({
+    username: admin.username,
+    email: admin.email || null,
+    telegramUsername: admin.telegramUsername || null,
+    telegramLinked: Boolean(admin.telegramChatId)
+  });
 });
 
 // ---- Forgot / reset password ----
@@ -348,6 +353,67 @@ router.post('/account/email', requireAuth, (req, res) => {
   }
   db.save(data);
   res.json({ ok: true, email: admin.email });
+});
+
+// ---- Telegram notifications (order-approval pings) ----
+// Two-step, same reasoning as a linked customer (see db.js
+// upsertTelegramUser): a username alone can't be messaged - Telegram's
+// Bot API only ever accepts a numeric chat id for a private DM - so this
+// is split into "save the handle" (here) and "resolve it to a chat id"
+// (POST /telegram/link-account below), which the admin triggers after
+// actually messaging the bot at least once.
+router.post('/account/telegram', requireAuth, (req, res) => {
+  const { currentPassword, telegramUsername } = req.body;
+  const data = db.load();
+  const admin = data.admins.find(a => a.id === req.session.adminId);
+
+  // Same reasoning as change-password/change-username/account-email: this
+  // controls where order-approval notifications go, so an
+  // unattended/hijacked session shouldn't be able to silently redirect
+  // them without the real admin's password.
+  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const trimmed = String(telegramUsername || '').trim().replace(/^@/, '');
+  if (trimmed) {
+    if (trimmed.length < 5 || trimmed.length > 32 || !/^[a-zA-Z0-9_]+$/.test(trimmed)) {
+      return res.status(400).json({ error: 'That doesn\'t look like a valid Telegram username' });
+    }
+    // Changing the username invalidates any chat id linked to the old one
+    // - they're not the same Telegram account until re-linked, and
+    // sending to a stale chat id would DM the wrong person.
+    if (admin.telegramUsername !== trimmed) admin.telegramChatId = null;
+    admin.telegramUsername = trimmed;
+  } else {
+    admin.telegramUsername = null;
+    admin.telegramChatId = null;
+  }
+  db.save(data);
+  res.json({ ok: true, telegramUsername: admin.telegramUsername, telegramLinked: Boolean(admin.telegramChatId) });
+});
+
+router.post('/telegram/link-account', requireAuth, async (req, res) => {
+  const data = db.load();
+  const admin = data.admins.find(a => a.id === req.session.adminId);
+  if (!admin.telegramUsername) {
+    return res.status(400).json({ error: 'Save your Telegram username first' });
+  }
+
+  try {
+    const chatId = await findChatIdByUsername(admin.telegramUsername);
+    if (!chatId) {
+      return res.status(404).json({
+        error: `No recent message from @${admin.telegramUsername} found. Open the bot in Telegram, send it any message (e.g. /start), then try again.`
+      });
+    }
+    admin.telegramChatId = chatId;
+    db.save(data);
+    res.json({ ok: true, telegramLinked: true });
+  } catch (err) {
+    console.error('[admin] Telegram link-account failed:', err.message);
+    res.status(502).json({ error: 'Could not reach Telegram. Check TELEGRAM_BOT_TOKEN is set and try again.' });
+  }
 });
 
 // everything below requires auth
