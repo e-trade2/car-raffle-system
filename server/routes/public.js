@@ -104,7 +104,7 @@ const isPaymentUploadRateLimited = makeIpRateLimiter(PAYMENT_UPLOAD_WINDOW_MS, P
 // several times in a session (e.g. after each of several purchases).
 const TICKETS_LOOKUP_WINDOW_MS = 15 * 60 * 1000;
 const TICKETS_LOOKUP_MAX_ATTEMPTS = 20;
-const isTicketsLookupRateLimited = makeIpRateLimiter(TICKETS_LOOKUP_WINDOW_MS, TICKETS_LOOKUP_MAX_ATTEMPTS);
+const isTicketsLookupRateLimited = ()=> false; // disabled per request - was makeIpRateLimiter(TICKETS_LOOKUP_WINDOW_MS, TICKETS_LOOKUP_MAX_ATTEMPTS)
 
 // Keyed on the phone number itself rather than the requesting IP - the
 // per-IP limiter above doesn't catch someone spreading requests for one
@@ -117,7 +117,7 @@ const isTicketsLookupRateLimited = makeIpRateLimiter(TICKETS_LOOKUP_WINDOW_MS, T
 // two dozen lookups for the same number in 15 minutes is not.
 const TICKETS_LOOKUP_PHONE_WINDOW_MS = 15 * 60 * 1000;
 const TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS = 8;
-const isTicketsLookupPhoneRateLimited = makeIpRateLimiter(TICKETS_LOOKUP_PHONE_WINDOW_MS, TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS);
+const isTicketsLookupPhoneRateLimited = ()=> false; // disabled per request - was makeIpRateLimiter(TICKETS_LOOKUP_PHONE_WINDOW_MS, TICKETS_LOOKUP_PHONE_MAX_ATTEMPTS)
 
 // Admin re-opens receipts repeatedly while working through the orders
 // queue, so this is looser than the lookup limiters above - it's here as
