@@ -80,6 +80,16 @@ function defaultData() {
         // be directly usable to take over the account.
         resetTokenHash: null,
         resetTokenExpiresAt: null,
+        // Telegram DM target for order-notification pushes (see
+        // notifyAdmin in server/telegram.js). telegramUsername is what the
+        // admin types into Settings (their @handle, without the @).
+        // telegramChatId is resolved separately via POST
+        // /api/admin/telegram/link-account, which matches that username
+        // against whoever has recently messaged the bot - Telegram's Bot
+        // API can only ever send to a numeric chat id, never a username
+        // directly, so the username alone isn't enough to message them.
+        telegramUsername: null,
+        telegramChatId: null,
         failedLoginAttempts: 0,
         lockedUntil: null,
         createdAt: new Date().toISOString()
@@ -153,6 +163,8 @@ function load() {
     if (admin.email === undefined) admin.email = null;
     if (admin.resetTokenHash === undefined) admin.resetTokenHash = null;
     if (admin.resetTokenExpiresAt === undefined) admin.resetTokenExpiresAt = null;
+    if (admin.telegramUsername === undefined) admin.telegramUsername = null;
+    if (admin.telegramChatId === undefined) admin.telegramChatId = null;
   }
   let migrated = false;
   for (const order of data.orders) {
