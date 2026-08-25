@@ -168,7 +168,7 @@ const TEXT = {
     announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
     lotteryLbl:"Lootarii", winningTicketLbl:"Tikeetii Injifate", prizeLbl:"Badhaasa",
     tabAllLbl:"Hunda", tabFeaturedLbl:"Filatamoo", tabNewLbl:"Haaraa",
-    badgeFeaturedLbl:"Filatamaa",
+    badgeFeaturedLbl:"Addaa",
     ongoingRafflesLbl:"Lootarii Deemsifamaa Jiru", availableLbl:"jiru",
     newBadgeLbl:"HAARAA",
   }
