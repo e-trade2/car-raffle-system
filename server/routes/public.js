@@ -7,6 +7,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData } = require('../utils');
 const { reportLockout } = require('../alerts');
+const { notifyAdmin } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
@@ -360,6 +361,20 @@ router.post('/orders/:id/payment', (req, res, next) => {
 
     db.save(data);
     res.json({ order });
+
+    // Fire-and-forget, same contract as notifyCustomer in the approve/
+    // reject handlers: never awaited, and notifyAdmin() swallows every
+    // failure itself, so a missing/unlinked Telegram setup can't turn a
+    // successful receipt upload into an error response for the buyer.
+    const raffle = data.raffles.find(r => r.id === order.raffleId);
+    const ticketWord = order.ticketNumbers.length > 1 ? 'numbers' : 'number';
+    notifyAdmin(data,
+      `🔔 New order awaiting approval - "${raffle ? raffle.title : 'Unknown raffle'}"\n\n` +
+      `Buyer: ${order.fullName} (${order.phone})\n` +
+      `Ticket ${ticketWord}: ${order.ticketNumbers.join(', ')}\n` +
+      `Total: ${order.total.toLocaleString()} Birr\n\n` +
+      `Review it in the admin panel.`
+    );
   });
 });
 
