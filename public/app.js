@@ -65,6 +65,7 @@ const TEXT = {
     confirmSelection:"Confirm Selection", selectNumberLbl:"Select Number", doneLbl:"Done",
     orderConfirmTitle:"Confirm your order", orderPaymentTitle:"Payment",
     orderStatusTitle:"Order submitted", orderReviewTitle:"Review Order",
+    orderSummaryTitle:"Order Summary",
     bankLbl:"Bank", submitOrderLbl:"Submit Order",
     reviewNoteMsg:"Your tickets will be reviewed and confirmed within 24 hours.",
     fullNameLbl:"Full Name", phoneLbl:"Phone Number",
@@ -105,6 +106,7 @@ const TEXT = {
     confirmSelection:"ምርጫ አረጋግጥ", selectNumberLbl:"ቁጥር ምረጥ", doneLbl:"ጨርስ",
     orderConfirmTitle:"ግዢዎን ያጠናቁ", orderPaymentTitle:"ግዢዎን ያጠናቁ",
     orderStatusTitle:"ትዕዛዝ ገብቷል", orderReviewTitle:"ግዢዎን ያጠናቁ",
+    orderSummaryTitle:"የትዕዛዝ ማጠቃለያ",
     bankLbl:"ባንክ", submitOrderLbl:"ትዕዛዝ ላክ",
     reviewNoteMsg:"ትኬቶቻችሁ ይጠበቃሉ፣ ክፍያዎም በ24 ሰዓት ውስጥ ይረጋገጣል።",
     fullNameLbl:"ሙሉ ስም", phoneLbl:"ስልክ ቁጥር",
@@ -145,6 +147,7 @@ const TEXT = {
     confirmSelection:"Filannoo Mirkaneessi", selectNumberLbl:"Lakkoofsa Filadhu", doneLbl:"Xumuri",
     orderConfirmTitle:"Bitta Xumuri", orderPaymentTitle:"Bitta Xumuri",
     orderStatusTitle:"Ajajni ergameera", orderReviewTitle:"Ajaja Ilaali",
+    orderSummaryTitle:"Cuunfaa Ajajaa",
     bankLbl:"Baankii", submitOrderLbl:"Ajaja Ergi",
     reviewNoteMsg:"Tikeetiin keessan ni ilaalama, kaffaltiinis sa'aatii 24 keessatti ni mirkanaa'a.",
     fullNameLbl:"Maqaa Guutuu", phoneLbl:"Lakkoofsa Bilbilaa",
@@ -1005,7 +1008,7 @@ function renderCheckoutReview(banks){
   const receiptUrl = receiptFile ? URL.createObjectURL(receiptFile) : '';
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
-      <div class="summary-title">${t('orderReviewTitle')}</div>
+      <div class="summary-title">${t('orderSummaryTitle')}</div>
       <div class="summary-row"><span>${t('itemLbl')}</span><b>${esc(checkoutSummaryTitle(currentRaffle))}</b></div>
       <div class="summary-row"><span>${t('ticketsLbl')}</span><b>${checkoutOrder.quantity} × ${checkoutOrder.unitPrice.toLocaleString()} Birr</b></div>
       <div class="summary-row summary-row-stacked"><span>${t('ticketNumbersLbl')}</span></div>
