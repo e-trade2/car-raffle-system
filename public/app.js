@@ -1160,7 +1160,7 @@ function renderTickets(orders, counts){
           <div style="font-family:var(--font-display);font-weight:700;color:var(--accent-gold);font-size:16px;margin-top:2px;">#${o.ticketNumbers.join(', #')}</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">${new Date(o.createdAt).toLocaleDateString()}</div>
         </div>
-        <div class="ticket-status ${o.status}">${statusIcon[o.status]||''}${statusLabel(o.status)}</div>
+        <div class="ticket-status ${o.status}"><span class="status-dot">${statusIcon[o.status]||''}</span><span class="status-lbl">${statusLabel(o.status)}</span></div>
       </div>
       ${needsPayment ? `<div style="font-size:11.5px;color:var(--accent-gold);margin-top:6px;">Reserved until ${new Date(o.reservedUntil).toLocaleTimeString()} - upload your payment receipt before then or these numbers will be released.</div>` : ''}
       ${released ? `<div class="ticket-nums" id="ticket-nums-${o.id}">${o.ticketNumbers.map(n=>`<span class="chip-num chip-num-released">#${n}</span>`).join('')}</div>` : ''}
