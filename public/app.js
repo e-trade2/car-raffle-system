@@ -1157,14 +1157,13 @@ function renderTickets(orders, counts){
         <img class="ticket-thumb" src="${esc(o.raffleImage||'')}" onerror="this.style.visibility='hidden'">
         <div style="flex:1;min-width:0;">
           <div style="font-weight:700;">${esc(o.raffleTitle)}</div>
-          <div style="font-size:11.5px;color:var(--text-tertiary);">Order #${esc(o.id)}</div>
+          <div style="font-family:var(--font-display);font-weight:700;color:var(--accent-gold);font-size:16px;margin-top:2px;">#${o.ticketNumbers.join(', #')}</div>
           <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">${new Date(o.createdAt).toLocaleDateString()}</div>
         </div>
         <div class="ticket-status ${o.status}">${statusIcon[o.status]||''}${statusLabel(o.status)}</div>
       </div>
-      <div style="font-size:12.5px;color:var(--text-secondary);">${o.quantity} ticket(s) · ${o.total.toLocaleString()} Birr</div>
       ${needsPayment ? `<div style="font-size:11.5px;color:var(--accent-gold);margin-top:6px;">Reserved until ${new Date(o.reservedUntil).toLocaleTimeString()} - upload your payment receipt before then or these numbers will be released.</div>` : ''}
-      <div class="ticket-nums" id="ticket-nums-${o.id}">${o.ticketNumbers.map(n=>`<span class="chip-num${released ? ' chip-num-released' : ''}">#${n}</span>`).join('')}</div>
+      ${released ? `<div class="ticket-nums" id="ticket-nums-${o.id}">${o.ticketNumbers.map(n=>`<span class="chip-num chip-num-released">#${n}</span>`).join('')}</div>` : ''}
       ${note ? `<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
         <span>${note}</span>
         ${o.status === 'expired' ? `<span style="color:var(--accent-red);font-weight:600;cursor:pointer;" data-deleteorder="${esc(o.id)}">Remove</span>` : ''}
