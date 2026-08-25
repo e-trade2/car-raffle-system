@@ -1143,10 +1143,14 @@ function renderTickets(orders, counts){
   if (!orders.length){ list.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
 
+  const statusFooterNote2 = {
+    expired: '🎟 Numbers released — no longer yours',
+    rejected: '🎟 Numbers released — no longer yours',
+  };
   const cardHtml = o => {
     const released = o.status === 'expired' || o.status === 'rejected';
     const needsPayment = o.status === 'awaiting_payment';
-    const note = statusFooterNote[o.status];
+    const note = statusFooterNote[o.status] || statusFooterNote2[o.status];
     return `
     <div class="ticket-card">
       <div class="ticket-top">
@@ -1159,12 +1163,13 @@ function renderTickets(orders, counts){
         <div class="ticket-status ${o.status}">${statusIcon[o.status]||''}${statusLabel(o.status)}</div>
       </div>
       <div style="font-size:12.5px;color:var(--text-secondary);">${o.quantity} ticket(s) · ${o.total.toLocaleString()} Birr</div>
-      ${released ? `<div style="font-size:11.5px;color:var(--accent-red);margin-top:6px;">These numbers were released back to the pool and no longer belong to you.</div>` : ''}
       ${needsPayment ? `<div style="font-size:11.5px;color:var(--accent-gold);margin-top:6px;">Reserved until ${new Date(o.reservedUntil).toLocaleTimeString()} - upload your payment receipt before then or these numbers will be released.</div>` : ''}
       <div class="ticket-nums" id="ticket-nums-${o.id}">${o.ticketNumbers.map(n=>`<span class="chip-num${released ? ' chip-num-released' : ''}">#${n}</span>`).join('')}</div>
-      ${note ? `<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);">${note}</div>` : ''}
+      ${note ? `<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;">
+        <span>${note}</span>
+        ${o.status === 'expired' ? `<span style="color:var(--accent-red);font-weight:600;cursor:pointer;" data-deleteorder="${esc(o.id)}">Remove</span>` : ''}
+      </div>` : ''}
       ${needsPayment ? `<button class="btn btn-gold" style="margin-top:12px;margin-bottom:0;" data-resumepay="${esc(o.id)}">Continue Payment →</button>` : ''}
-      ${o.status === 'expired' ? `<button class="btn" style="margin-top:12px;margin-bottom:0;background:transparent;border:1px solid var(--accent-red);color:var(--accent-red);" data-deleteorder="${esc(o.id)}">Remove from my list</button>` : ''}
     </div>
   `;
   };
