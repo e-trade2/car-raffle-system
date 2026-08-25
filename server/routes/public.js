@@ -457,7 +457,7 @@ router.get('/tickets', (req, res) => {
     .filter(o => o.phone === phone)
     .map(o => {
       const raffle = data.raffles.find(r => r.id === o.raffleId);
-      return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown' };
+      return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown', raffleImage: raffle ? raffle.imageUrl : '' };
     })
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
