@@ -92,6 +92,7 @@ const TEXT = {
     badgeFeaturedLbl:"Featured",
     ongoingRafflesLbl:"Ongoing raffles", availableLbl:"available",
     newBadgeLbl:"NEW",
+    submittingLbl:"Submitting…", wakingUpLbl:"Waking up server, please wait…",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -133,6 +134,7 @@ const TEXT = {
     badgeFeaturedLbl:"ተመራጭ",
     ongoingRafflesLbl:"በመካሄድ ላይ ያሉ ዕጣዎች", availableLbl:"ያሉ",
     newBadgeLbl:"አዲስ",
+    submittingLbl:"በመላክ ላይ…", wakingUpLbl:"አገልጋዩ በመነሳት ላይ ነው፣ እባክዎ ይጠብቁ…",
   },
   om: {
     backLabel:"Duubatti", cdLabel:"GUYYA XUMURRA",
@@ -174,6 +176,7 @@ const TEXT = {
     badgeFeaturedLbl:"Addaa",
     ongoingRafflesLbl:"Lotoriwwan Jiran", availableLbl:"jira",
     newBadgeLbl:"HAARAA",
+    submittingLbl:"Ergaa jira…", wakingUpLbl:"Sarvarichi ka'aa jira, maaloo eegaa…",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -492,7 +495,7 @@ function renderHomeList(){
   const [main, ...rest] = active;
   wrap.innerHTML = raffleCardHtml(main, 0);
   wrap.querySelectorAll('[data-open-detail]').forEach(btn=>{
-    btn.addEventListener('click', ()=> openDetail(btn.dataset.openDetail));
+    btn.addEventListener('click', ()=> openDetail(btn.dataset.openDetail, btn));
   });
 
   tabsEl.style.display = 'flex';
@@ -508,7 +511,7 @@ function renderHomeList(){
     otherEmpty.style.display = 'none';
     otherWrap.innerHTML = filtered.map(miniCardHtml).join('');
     otherWrap.querySelectorAll('[data-open-detail]').forEach(el=>{
-      el.addEventListener('click', ()=> openDetail(el.dataset.openDetail));
+      el.addEventListener('click', ()=> openDetail(el.dataset.openDetail, el));
     });
   }
 }
@@ -534,9 +537,19 @@ function padNum(n){
   return String(n).padStart(width, '0');
 }
 
-async function openDetail(raffleId){
+async function openDetail(raffleId, triggerEl){
+  // The trigger is either the "Buy Ticket" button (has a swappable label
+  // span) or a whole mini-card div (just an image+text card, no button
+  // label to swap) - each gets a loading treatment that fits its shape, so
+  // this fetch can't look "stuck" during a Render cold start either way.
+  const isButton = triggerEl && triggerEl.classList.contains('buy-ticket-btn');
+  const label = isButton ? triggerEl.querySelector('span:last-child') : null;
+  const loading = isButton
+    ? startBtnLoading(triggerEl, label, null)
+    : (triggerEl && (()=>{ triggerEl.style.pointerEvents = 'none'; triggerEl.style.opacity = '0.6'; return { finish(){ triggerEl.style.pointerEvents=''; triggerEl.style.opacity=''; } }; })());
   try{
     const res = await fetch(`${API}/raffles/${raffleId}`);
+    if (loading) loading.finish();
     if (!res.ok){ showToast('Raffle not found'); return; }
     const data = await res.json();
     currentRaffle = data.raffle;
@@ -544,7 +557,10 @@ async function openDetail(raffleId){
     selectedNumbers = [];
     renderDetail(currentRaffle);
     showView('detailView');
-  }catch(e){ console.error(e); showToast('Could not load raffle'); }
+  }catch(e){
+    if (loading) loading.finish();
+    console.error(e); showToast('Could not load raffle');
+  }
 }
 
 function renderDetail(raffle){
@@ -671,7 +687,16 @@ async function openNumberPicker(){
   updateNumberModalConfirmBtn();
   updatePickSub();
   document.getElementById('numberModalBackdrop').classList.add('show');
-  await loadAllNumbers();
+  const btn = document.getElementById('pickNumbersBtn');
+  const label = btn ? btn.querySelector('span:last-child') : null;
+  const loading = btn ? startBtnLoading(btn, label, null) : null;
+  try{
+    await loadAllNumbers();
+  }catch(e){
+    console.error(e); showToast('Could not load ticket numbers');
+  }finally{
+    if (loading) loading.finish();
+  }
 }
 
 // Confirm button starts as a muted "Select Number" state; once at least one
@@ -832,7 +857,7 @@ function renderCheckoutStep1(){
       </div>
     </div>
   `;
-  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-8">8</span><span class="btn-label">${t('continueLbl')}</span><svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  document.getElementById('checkoutFoot').innerHTML = `<button class="btn btn-gold" id="checkoutStep1Next"><span class="step-badge step-8">8</span><span class="btn-label" id="checkoutStep1NextLabel">${t('continueLbl')}</span><svg class="chevron" id="checkoutStep1NextChevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   document.getElementById('checkoutStep1Next').addEventListener('click', submitStep1);
   document.getElementById('checkoutFullName').addEventListener('input', e=> e.target.classList.remove('input-error'));
   document.getElementById('checkoutPhone').addEventListener('input', e=> e.target.classList.remove('input-error'));
@@ -867,7 +892,8 @@ async function submitStep1(){
 
   const btn = document.getElementById('checkoutStep1Next');
   const btnLabel = btn.querySelector('.btn-label');
-  btn.disabled = true; btnLabel.textContent = '...';
+  const chevron = document.getElementById('checkoutStep1NextChevron');
+  const loading = startBtnLoading(btn, btnLabel, chevron);
   try{
     const res = await fetch(`${API}/orders`, {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -878,14 +904,51 @@ async function submitStep1(){
       })
     });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not create order'); btn.disabled=false; btnLabel.textContent = t('continueLbl'); return; }
+    loading.finish();
+    if (!res.ok){ showToast(data.error || 'Could not create order'); return; }
     checkoutOrder = data.order;
     localStorage.setItem('customerId', checkoutOrder.customerId);
     renderCheckoutStep2(data.banks);
     setStepBars(2);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent = t('continueLbl');
+    loading.finish();
+    console.error(e); showToast('Network error, please try again');
   }
+}
+
+// Shared loading-state toggle for buttons that trigger a network request:
+// swaps the label for a spinner and hides the chevron while disabled, so a
+// slow request (e.g. a Render free-tier cold start) reads as "working"
+// instead of "broken". labelEl is required; chevronEl may be null for
+// buttons that don't have one.
+function setBtnLoading(btn, labelEl, chevronEl, loading, loadingText){
+  btn.disabled = loading;
+  if (chevronEl) chevronEl.style.display = loading ? 'none' : '';
+  if (loading){
+    labelEl.dataset.restoreHtml = labelEl.innerHTML;
+    labelEl.innerHTML = `<span class="btn-spinner"></span>${loadingText}`;
+  } else if (labelEl.dataset.restoreHtml){
+    labelEl.innerHTML = labelEl.dataset.restoreHtml;
+    delete labelEl.dataset.restoreHtml;
+  }
+}
+
+// Starts a button's loading state and returns a matching timer + finish
+// function, so every network-triggered button (Buy Ticket, Pick Numbers,
+// checkout Continue/Submit) shows the same "Submitting… -> Waking up
+// server…" sequence instead of each one reinventing it slightly
+// differently. Call finish() in both the success and error/catch paths.
+function startBtnLoading(btn, labelEl, chevronEl){
+  setBtnLoading(btn, labelEl, chevronEl, true, t('submittingLbl'));
+  const wakeupTimer = setTimeout(()=>{
+    labelEl.innerHTML = `<span class="btn-spinner"></span>${t('wakingUpLbl')}`;
+  }, 4000);
+  return {
+    finish(){
+      clearTimeout(wakeupTimer);
+      setBtnLoading(btn, labelEl, chevronEl, false);
+    }
+  };
 }
 
 function renderCheckoutStep2(banks){
@@ -1038,7 +1101,7 @@ function renderCheckoutReview(banks){
 async function submitPayment(){
   const btn = document.getElementById('checkoutReviewSubmit');
   const btnLabel = btn.querySelector('.btn-label');
-  btn.disabled = true; btnLabel.textContent = '...';
+  const loading = startBtnLoading(btn, btnLabel, null);
   try{
     const fd = new FormData();
     fd.append('receipt', receiptFile);
@@ -1046,12 +1109,14 @@ async function submitPayment(){
     if (reviewSenderAccount) fd.append('senderAccount', reviewSenderAccount);
     const res = await fetch(`${API}/orders/${checkoutOrder.id}/payment`, { method:'POST', body: fd });
     const data = await res.json();
-    if (!res.ok){ showToast(data.error || 'Could not submit payment'); btn.disabled=false; btnLabel.textContent=t('submitOrderLbl'); return; }
+    loading.finish();
+    if (!res.ok){ showToast(data.error || 'Could not submit payment'); return; }
     checkoutOrder = data.order;
     renderCheckoutStep4();
     setStepBars(4);
   }catch(e){
-    console.error(e); showToast('Network error, please try again'); btn.disabled=false; btnLabel.textContent=t('submitOrderLbl');
+    loading.finish();
+    console.error(e); showToast('Network error, please try again');
   }
 }
 
