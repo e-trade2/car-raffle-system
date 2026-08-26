@@ -295,6 +295,45 @@ router.post('/orders', (req, res) => {
   res.status(201).json({ order, banks: data.banks, reserveMinutes: RESERVE_MINUTES });
 });
 
+// ---- Buyer cancels their own not-yet-paid order ----
+// Called by the frontend when the buyer backs out of checkout (Back button
+// on step 2, or closing the modal) after step 1 already reserved numbers
+// on the server. Without this, going Back and resubmitting the same
+// numbers would fail with "no longer available" for a full
+// RESERVE_MINUTES window - not because someone else took them, but
+// because the buyer's own abandoned order was still holding them.
+// Deliberately narrow, same reasoning as DELETE /orders/:id below: only
+// 'awaiting_payment' orders qualify (nothing paid/uploaded yet, so
+// there's nothing real to lose), and phone must match so this can't be
+// used to cancel a stranger's in-progress order.
+router.post('/orders/:id/cancel', (req, res) => {
+  const phone = (req.body.phone || '').trim();
+  if (!phone) return res.status(400).json({ error: 'phone is required' });
+
+  const data = db.load();
+  const order = data.orders.find(o => o.id === req.params.id);
+  if (!order || order.phone !== phone) return res.status(404).json({ error: 'Order not found' });
+  if (order.status !== 'awaiting_payment') {
+    // Already paid/reviewed/expired - nothing for this route to do. Not an
+    // error: the frontend calls this defensively and shouldn't have to
+    // know the order's exact state first.
+    return res.json({ ok: true });
+  }
+
+  const raffle = data.raffles.find(r => r.id === order.raffleId);
+  if (raffle && raffle.pending) {
+    for (const n of order.ticketNumbers) {
+      const p = raffle.pending[String(n)];
+      // Only clear the slot if it still points at *this* order - mirrors
+      // sweepExpired's same guard in db.js.
+      if (p && p.orderId === order.id) delete raffle.pending[String(n)];
+    }
+  }
+  data.orders = data.orders.filter(o => o.id !== order.id);
+  db.save(data);
+  res.json({ ok: true });
+});
+
 // ---- Step 2: attach payment (bank chosen + receipt image) ----
 router.post('/orders/:id/payment', (req, res, next) => {
   if (isPaymentUploadRateLimited(req.ip)) {
