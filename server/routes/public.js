@@ -556,17 +556,23 @@ router.post('/telegram/link', (req, res) => {
     reportLockout(`telegram-link-badkey:${req.ip}`, `IP ${req.ip} called POST /telegram/link with a missing/wrong internal key - possible attempt to plant a fake phone/telegramId pairing.`);
     return res.status(403).json({ error: 'Forbidden' });
   }
-  const { telegramId, phone, fullName, username } = req.body || {};
+  const { telegramId, phone, fullName, username, language } = req.body || {};
   if (!telegramId || !phone) {
     return res.status(400).json({ error: 'telegramId and phone are required' });
   }
+  // Only accept languages the mini app actually supports - an unrecognized
+  // value here would otherwise get stored and later handed back to the
+  // frontend's applyLang(), which has no fallback for an unknown code.
+  const SUPPORTED_LANGS = ['om', 'am', 'en'];
+  const safeLanguage = SUPPORTED_LANGS.includes(language) ? language : null;
   const data = db.load();
   const user = db.upsertTelegramUser(
     data,
     telegramId,
     String(phone).trim(),
     String(fullName || '').trim(),
-    username ? String(username).trim() : ''
+    username ? String(username).trim() : '',
+    safeLanguage
   );
   db.save(data);
   res.json({ ok: true, telegramId: user.telegramId });
@@ -604,7 +610,8 @@ router.post('/telegram/prefill', (req, res) => {
     linked: true,
     phone: linked.phone,
     fullName: linked.fullName,
-    customerId: customer ? customer.id : null
+    customerId: customer ? customer.id : null,
+    language: linked.language || null
   });
 });
 
