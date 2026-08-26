@@ -788,6 +788,13 @@ let checkoutOrder = null;
 let checkoutMode = 'random';
 let selectedBankId = null;
 let receiptFile = null;
+// Data URL (base64) preview of receiptFile, generated once via FileReader
+// when the file is first picked. Telegram's in-app WebView on some Android
+// builds fails to render blob: URLs (URL.createObjectURL) inside an <img> -
+// they show as a broken-image icon instead of the picture - so every place
+// that needs to redisplay the receipt (step 2 revisited, review step) reuses
+// this cached data: URL rather than minting a fresh blob: URL each time.
+let receiptDataUrl = null;
 let reviewSenderAccount = '';
 
 // Releases the current checkout order's number reservation on the server,
@@ -824,6 +831,7 @@ function startCheckout(mode){
   // and the server fills the remaining slots at random around them.
   selectedBankId = null;
   receiptFile = null;
+  receiptDataUrl = null;
   reviewSenderAccount = '';
   checkoutOrder = null;
   renderCheckoutStep1();
@@ -1020,7 +1028,7 @@ function renderCheckoutStep2(banks){
     document.getElementById('uploadHintText').style.display = 'none';
     document.getElementById('uploadSizeHint').style.display = 'none';
     const img = document.getElementById('uploadPreview');
-    img.src = URL.createObjectURL(receiptFile); img.style.display = 'block';
+    img.src = receiptDataUrl; img.style.display = 'block';
   }
   uploadBox.addEventListener('click', ()=> receiptInput.click());
   receiptInput.addEventListener('change', ()=>{
@@ -1033,8 +1041,9 @@ function renderCheckoutStep2(banks){
     document.getElementById('uploadSizeHint').style.display = 'none';
     const reader = new FileReader();
     reader.onload = e=>{
+      receiptDataUrl = e.target.result;
       const img = document.getElementById('uploadPreview');
-      img.src = e.target.result; img.style.display = 'block';
+      img.src = receiptDataUrl; img.style.display = 'block';
     };
     reader.readAsDataURL(file);
   });
@@ -1045,7 +1054,7 @@ function renderCheckoutReview(banks){
   const bank = banks.find(b=> b.id === selectedBankId);
   const senderAccount = document.getElementById('senderAccountInput') ? document.getElementById('senderAccountInput').value.trim() : reviewSenderAccount;
   reviewSenderAccount = senderAccount;
-  const receiptUrl = receiptFile ? URL.createObjectURL(receiptFile) : '';
+  const receiptUrl = receiptFile ? receiptDataUrl : '';
   document.getElementById('checkoutBody').innerHTML = `
     <div class="summary-card">
       <div class="summary-title">${t('orderSummaryTitle')}</div>
@@ -1288,6 +1297,7 @@ async function resumePayment(orderId){
     checkoutMode = 'manual';
     selectedBankId = null;
     receiptFile = null;
+    receiptDataUrl = null;
     renderCheckoutStep2(banksData.banks || []);
     document.getElementById('checkoutModalBackdrop').classList.add('show');
     setStepBars(2);
