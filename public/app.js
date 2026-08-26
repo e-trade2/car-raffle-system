@@ -774,6 +774,28 @@ let selectedBankId = null;
 let receiptFile = null;
 let reviewSenderAccount = '';
 
+// Releases the current checkout order's number reservation on the server,
+// if one exists and hasn't been paid yet. Called whenever checkout is
+// abandoned before step 3's submit (Back to step 1, or closing the modal)
+// - without this, the numbers stay "pending" and unavailable to everyone,
+// including the buyer's own retry, for the full RESERVE_MINUTES window.
+// Fire-and-forget from the caller's point of view (awaited here, but a
+// failure is only logged - an abandoned reservation quietly expiring on
+// its own later is an acceptable fallback, not worth blocking the UI on).
+async function cancelCheckoutOrder(){
+  if (!checkoutOrder || checkoutOrder.status !== 'awaiting_payment') return;
+  const orderId = checkoutOrder.id;
+  const phone = checkoutOrder.phone;
+  checkoutOrder = null;
+  try{
+    await fetch(`${API}/orders/${orderId}/cancel`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ phone })
+    });
+  }catch(e){ console.error('cancelCheckoutOrder failed:', e); }
+}
+
 function startCheckout(mode){
   checkoutMode = mode;
   if (mode === 'manual' && selectedNumbers.length !== qty){
@@ -931,6 +953,7 @@ function renderCheckoutStep2(banks){
     </div>
   `;
   document.getElementById('checkoutStep2Back').addEventListener('click', ()=>{
+    cancelCheckoutOrder();
     renderCheckoutStep1();
     setStepBars(1);
   });
@@ -1085,6 +1108,7 @@ function renderCheckoutStep4(){
 }
 
 document.getElementById('checkoutModalClose').addEventListener('click', ()=>{
+  cancelCheckoutOrder();
   document.getElementById('checkoutModalBackdrop').classList.remove('show');
 });
 
