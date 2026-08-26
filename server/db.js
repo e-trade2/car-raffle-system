@@ -200,7 +200,7 @@ function getOrCreateCustomer(data, phone) {
 // the bot) - not secret, but only the bot server should ever be able to
 // call this, since it's writing a phone number under someone's control.
 // That's enforced by the internal-key check in the route handler, not here.
-function upsertTelegramUser(data, telegramId, phone, fullName, username) {
+function upsertTelegramUser(data, telegramId, phone, fullName, username, language) {
   const id = String(telegramId);
   let user = data.telegramUsers.find(u => u.telegramId === id);
   if (user) {
@@ -211,10 +211,15 @@ function upsertTelegramUser(data, telegramId, phone, fullName, username) {
     // otherwise a re-share without a username would blank out one we
     // already had on file.
     if (username) user.username = username;
+    // Same idea for language: only overwrite when the bot actually sent
+    // one, so an older bot deploy (pre-language-passthrough) re-linking
+    // this user doesn't blank out a language we already had on file.
+    if (language) user.language = language;
     user.updatedAt = new Date().toISOString();
   } else {
     user = {
       telegramId: id, phone, fullName, username: username || null,
+      language: language || null,
       banned: false, bannedAt: null, bannedReason: null,
       updatedAt: new Date().toISOString()
     };
