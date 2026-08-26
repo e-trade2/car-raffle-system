@@ -177,6 +177,22 @@ const TEXT = {
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
+const SUPPORTED_LANGS = ['om', 'am', 'en'];
+
+// Direct bot -> mini app language handoff: the bot appends ?lang=om/am/en
+// to the web_app URL for the language the person just picked in the bot,
+// seconds before tapping "open app". That's a stronger, more immediate
+// signal than the /telegram/prefill round trip below (which needs
+// INTERNAL_API_KEY + TELEGRAM_BOT_TOKEN configured and only resolves after
+// an async fetch), so it wins over whatever's in localStorage - including
+// a previous in-app manual pick, since picking a language in the bot right
+// before opening is just as much a deliberate choice as tapping it in-app.
+const urlLang = new URLSearchParams(window.location.search).get('lang');
+if (urlLang && SUPPORTED_LANGS.includes(urlLang)) {
+  localStorage.setItem('lang', urlLang);
+  localStorage.setItem('langUserSet', '1');
+}
+
 let currentLang = localStorage.getItem('lang') || 'en';
 
 function t(key){ return (TEXT[currentLang] && TEXT[currentLang][key]) || TEXT.en[key] || key; }
