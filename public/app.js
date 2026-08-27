@@ -1,6 +1,15 @@
 if (window.Telegram && window.Telegram.WebApp) {
   Telegram.WebApp.ready();
   Telegram.WebApp.expand();
+  // Telegram's mini-app swipe-to-close gesture intercepts vertical swipes
+  // anywhere on screen - including inside the native gallery/file-picker
+  // sheet that opens for the receipt upload input below. Without this, a
+  // user scrolling their photo library can accidentally trigger Telegram's
+  // close gesture and get bounced out mid-pick. Requires Bot API 7.7+
+  // (falls back to a no-op harmlessly on older clients).
+  if (typeof Telegram.WebApp.disableVerticalSwipes === 'function') {
+    Telegram.WebApp.disableVerticalSwipes();
+  }
 }
 
 const API = '/api';
