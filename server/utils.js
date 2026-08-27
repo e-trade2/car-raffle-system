@@ -216,4 +216,21 @@ function verifyTelegramInitData(initData, botToken, maxAgeSeconds = 24 * 60 * 60
   return user;
 }
 
-module.exports = { getAvailability, numberStatus, publicRaffle, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData, maskWinnerName };
+// ---- Phone normalization for cross-source matching ----
+// The same person's phone number shows up in two different shapes in this
+// app: however an admin types it into the "Approve Ticket" form (commonly
+// local format, e.g. "0939752825"), versus whatever Telegram hands the bot
+// when the user taps "share phone" (commonly with the country code, e.g.
+// "251939752825" or "+251939752825"). notifyCustomer used to compare these
+// with a plain === and silently found no match whenever the shapes
+// differed - the ticket was still issued, but the "you've been approved"
+// message never went out. Stripping everything but digits and keeping only
+// the last 9 (an Ethiopian subscriber number is always 9 digits, after any
+// leading 0 or +251/251) makes "0939752825" and "251939752825" compare
+// equal without having to guess which format either side used.
+function normalizePhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return digits.slice(-9);
+}
+
+module.exports = { getAvailability, numberStatus, publicRaffle, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData, maskWinnerName, normalizePhone };
