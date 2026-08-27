@@ -771,7 +771,7 @@ router.post('/orders/manual', (req, res) => {
   let data = db.load();
   data = db.sweepExpired(data);
 
-  const { raffleId, numbers, quantity, fullName, phone, note } = req.body || {};
+  const { raffleId, numbers, quantity, fullName, phone, note, telegramUsername } = req.body || {};
   const raffle = data.raffles.find(r => r.id === raffleId);
   if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
 
@@ -833,6 +833,7 @@ router.post('/orders/manual', (req, res) => {
     adminCreated: true,
     createdByAdminId: req.session.adminId,
     adminNote: note ? String(note).trim() : '',
+    telegramUsername: telegramUsername ? String(telegramUsername).trim().replace(/^@/, '') : null,
     createdAt: new Date().toISOString(),
     confirmedAt: new Date().toISOString()
   };
@@ -845,14 +846,22 @@ router.post('/orders/manual', (req, res) => {
   db.save(data);
   res.json({ order, raffle: publicRaffle(raffle) });
 
-  // Fire-and-forget, same as the approve route - a customer who hasn't
-  // linked Telegram (or a Telegram API hiccup) can't turn this into an
-  // error response for the admin.
+  // Fire-and-forget, same as the checkout approve route - a customer who
+  // hasn't linked Telegram (or a Telegram API hiccup) can't turn this into
+  // an error response for the admin. Worded the same as a normal checkout
+  // approval ("has been approved") since from the customer's side this
+  // *is* an approval - the admin just collected payment outside the app
+  // instead of clicking Approve on a pending order. notifyCustomer matches
+  // on phone first (normalized, so local vs. country-code formats both
+  // work); telegramUsername is only used as a fallback if that lookup
+  // finds nothing, e.g. the phone the admin typed doesn't match what's on
+  // file for this customer.
   const ticketWord = order.ticketNumbers.length > 1 ? 'numbers' : 'number';
   notifyCustomer(data, order,
-    `🎟️ A ticket has been issued for you for "${raffle.title}".\n\n` +
+    `✅ Your order for "${raffle.title}" has been approved.\n\n` +
     `Ticket ${ticketWord}: ${order.ticketNumbers.join(', ')}\n\n` +
-    `Good luck!`
+    `Good luck!`,
+    { username: telegramUsername }
   );
 });
 
