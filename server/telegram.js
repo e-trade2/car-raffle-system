@@ -21,6 +21,8 @@
 // already sending their HTTP response, exactly like reportLockout in
 // alerts.js is called without awaiting it.
 
+const { normalizePhone } = require('./utils');
+
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
 
 function isConfigured() {
@@ -69,15 +71,34 @@ async function sendTelegramMessage(chatId, text) {
  * so every call site can fire this off after responding to the HTTP
  * request without a try/catch or .catch() of its own.
  *
+ * Matching is normalized-phone-first (see utils.normalizePhone - handles
+ * "0939752825" vs "251939752825" vs "+251939752825" all referring to the
+ * same subscriber), with an exact-phone check kept as a belt-and-suspenders
+ * fallback. If neither finds a link, and the caller knows this order's
+ * Telegram @username (e.g. an admin typed it into the Approve Ticket form
+ * because the phone on the order doesn't match what's on file), that's
+ * tried last - usernames are stored on the same telegramUsers record
+ * (upsertTelegramUser in db.js) whenever the user shared it with the bot.
+ *
  * @param {object} data - loaded db data (needs .telegramUsers)
  * @param {object} order - the order to notify about; must have `.phone`
  * @param {string} text - message body
+ * @param {object} [opts]
+ * @param {string} [opts.username] - fallback @username (without '@') to
+ *   match on if no telegramUsers record's phone matches this order's phone
  */
-async function notifyCustomer(data, order, text) {
+async function notifyCustomer(data, order, text, opts = {}) {
   try {
     if (!isConfigured()) return;
-    const link = (data.telegramUsers || []).find(u => u.phone === order.phone);
-    if (!link) return; // this buyer never shared their phone with the bot
+    const users = data.telegramUsers || [];
+    const normalizedOrderPhone = normalizePhone(order.phone);
+    let link = users.find(u => normalizedOrderPhone && normalizePhone(u.phone) === normalizedOrderPhone)
+      || users.find(u => u.phone === order.phone);
+    if (!link && opts.username) {
+      const target = String(opts.username).replace(/^@/, '').toLowerCase();
+      link = users.find(u => u.username && u.username.toLowerCase() === target);
+    }
+    if (!link) return; // this buyer never shared their phone (or username) with the bot
     await sendTelegramMessage(link.telegramId, text);
   } catch (err) {
     console.error(`[telegram] Failed to notify order ${order.id} (phone ${order.phone}):`, err.message);
