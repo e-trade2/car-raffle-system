@@ -754,6 +754,108 @@ router.post('/raffles/:id/admin-take', (req, res) => {
   res.json({ order, raffle: publicRaffle(raffle) });
 });
 
+// ---- Issue a real ticket on behalf of a customer (admin-collected payment) ----
+//
+// For buyers who paid outside the app - cash, a phone call, a bank transfer
+// the admin confirmed manually - and never completed (or couldn't complete)
+// checkout themselves. Unlike admin-take above (which reserves numbers for
+// the *admin*, phone:'ADMIN', total:0, customerId:null so it never shows up
+// in anyone's "My Tickets"), this creates a real sale under the *customer's*
+// own phone number: it counts toward revenue, and - because it goes through
+// the same db.getOrCreateCustomer() every normal order uses - it links into
+// that phone's existing customerId. That's what makes it show up
+// automatically in the customer's "My Tickets": if they've linked that
+// phone with the Telegram bot, POST /telegram/prefill (routes/public.js)
+// will find this exact customerId and load it without them typing anything.
+router.post('/orders/manual', (req, res) => {
+  let data = db.load();
+  data = db.sweepExpired(data);
+
+  const { raffleId, numbers, quantity, fullName, phone, note } = req.body || {};
+  const raffle = data.raffles.find(r => r.id === raffleId);
+  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
+
+  const cleanFullName = (fullName || '').trim();
+  const cleanPhone = (phone || '').trim();
+  if (!cleanFullName || !cleanPhone) {
+    return res.status(400).json({ error: 'fullName and phone are required' });
+  }
+  // Same protection as the public order-creation endpoint - an admin
+  // shouldn't be able to (even accidentally) hand a fresh ticket to a
+  // phone number that was specifically banned from placing orders.
+  if (db.isPhoneBanned(data, cleanPhone)) {
+    return res.status(403).json({ error: 'This phone number is banned from placing orders. Unban it first if this is intentional.' });
+  }
+
+  let selected;
+  if (Array.isArray(numbers) && numbers.length) {
+    const normalized = numbers.map(n => Number.parseInt(n, 10));
+    if (normalized.some(n => !Number.isInteger(n) || n < 1 || n > raffle.totalNumbers)) {
+      return res.status(400).json({ error: 'One or more numbers are invalid for this raffle' });
+    }
+    if (new Set(normalized).size !== normalized.length) {
+      return res.status(400).json({ error: 'Duplicate numbers in selection' });
+    }
+    const conflict = normalized.find(n => numberStatus(raffle, n) !== 'available');
+    if (conflict !== undefined) {
+      return res.status(409).json({ error: `Number ${conflict} is already taken or pending`, conflict });
+    }
+    selected = normalized;
+  } else {
+    const qty = Number.parseInt(quantity, 10);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'Provide either a positive integer quantity, or a numbers array' });
+    }
+    selected = randomAvailableNumbers(raffle, qty);
+    if (selected.length < qty) {
+      return res.status(409).json({ error: `Only ${selected.length} numbers are still available, can't take ${qty}` });
+    }
+  }
+
+  // Same customer id every time this phone orders (or gets issued a
+  // ticket) - this is the link that makes the ticket findable later by
+  // phone+customerId, and auto-loadable via the Telegram prefill flow.
+  const customer = db.getOrCreateCustomer(data, cleanPhone);
+
+  const order = {
+    id: nanoid(10),
+    raffleId: raffle.id,
+    ticketNumbers: selected,
+    quantity: selected.length,
+    unitPrice: raffle.price,
+    total: raffle.price * selected.length, // a real sale - counts toward revenue
+    fullName: cleanFullName,
+    phone: cleanPhone,
+    customerId: customer.id,
+    status: 'confirmed',
+    bankSelected: null,
+    receiptPath: null,
+    adminCreated: true,
+    createdByAdminId: req.session.adminId,
+    adminNote: note ? String(note).trim() : '',
+    createdAt: new Date().toISOString(),
+    confirmedAt: new Date().toISOString()
+  };
+
+  raffle.takenNumbers = raffle.takenNumbers || [];
+  for (const n of selected) {
+    if (!raffle.takenNumbers.includes(n)) raffle.takenNumbers.push(n);
+  }
+  data.orders.push(order);
+  db.save(data);
+  res.json({ order, raffle: publicRaffle(raffle) });
+
+  // Fire-and-forget, same as the approve route - a customer who hasn't
+  // linked Telegram (or a Telegram API hiccup) can't turn this into an
+  // error response for the admin.
+  const ticketWord = order.ticketNumbers.length > 1 ? 'numbers' : 'number';
+  notifyCustomer(data, order,
+    `🎟️ A ticket has been issued for you for "${raffle.title}".\n\n` +
+    `Ticket ${ticketWord}: ${order.ticketNumbers.join(', ')}\n\n` +
+    `Good luck!`
+  );
+});
+
 router.delete('/raffles/:id', (req, res) => {
   const data = db.load();
   const idx = data.raffles.findIndex(r => r.id === req.params.id);
