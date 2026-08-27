@@ -380,6 +380,7 @@ async function loadRaffles(){
           <button class="btn-outline" data-photobtn="${r.id}">${r.imageUrl ? 'Change Photo' : 'Add Photo'}</button>
           <button class="btn-outline" data-editbtn="${r.id}">Edit</button>
           <button class="btn-outline" data-taketicketsbtn="${r.id}">Take Tickets</button>
+          <button class="btn-outline" data-issueforbtn="${r.id}">Issue for Customer</button>
           ${r.status==='active' ? `<button class="btn-outline" data-end="${r.id}">End</button>` : `<button class="btn-outline" data-activate="${r.id}">Activate</button>`}
           <button class="btn-green" data-draw="${r.id}">Draw Winner</button>
           <button class="btn-red" data-delete="${r.id}">Delete</button>
@@ -394,6 +395,22 @@ async function loadRaffles(){
           <div class="row-actions">
             <button class="btn-gold" style="max-width:160px;" data-taketicketsconfirm="${r.id}">Take Tickets</button>
             <button class="btn-outline" data-canceltaketicketsbtn="${r.id}">Cancel</button>
+          </div>
+        </div>
+        <div class="raffle-edit-form" data-issueforform="${r.id}" style="display:none;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Creates a real, already-confirmed ticket under this customer's own phone number - use when they paid you directly (cash, phone transfer) but couldn't finish checkout in the app. It counts toward revenue, and will show up automatically in their own "My Tickets" if that phone is linked with the Telegram bot. ${r.remaining} of ${r.totalNumbers} still available.</p>
+          <div class="grid2">
+            <div><label>Customer Full Name</label><input type="text" placeholder="e.g. Almaz Tesfaye" data-issuefor-name="${r.id}"></div>
+            <div><label>Customer Phone Number</label><input type="text" placeholder="e.g. 251912345678" data-issuefor-phone="${r.id}"></div>
+          </div>
+          <div class="grid2">
+            <div><label>Quantity (random pick)</label><input type="number" min="1" max="${r.remaining}" placeholder="e.g. 1" data-issuefor-qty="${r.id}"></div>
+            <div><label>Or specific numbers (comma separated)</label><input type="text" placeholder="e.g. 5, 12, 40" data-issuefor-numbers="${r.id}"></div>
+          </div>
+          <div><label>Note (optional, internal only)</label><input type="text" placeholder="e.g. Paid via CBE transfer, confirmed by phone call" data-issuefor-note="${r.id}"></div>
+          <div class="row-actions">
+            <button class="btn-gold" style="max-width:200px;" data-issueforconfirm="${r.id}">Issue Ticket</button>
+            <button class="btn-outline" data-cancelissueforbtn="${r.id}">Cancel</button>
           </div>
         </div>
         <div class="raffle-edit-form" data-editform="${r.id}" style="display:none;">
@@ -450,6 +467,37 @@ async function loadRaffles(){
       try{
         const res = await api(`/raffles/${id}/admin-take`, { method:'POST', body: JSON.stringify(body) });
         alert(`Took ${res.order.ticketNumbers.length} ticket(s): ${res.order.ticketNumbers.join(', ')}`);
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-issueforbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      const id = b.dataset.issueforbtn;
+      const form = wrap.querySelector(`[data-issueforform="${id}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }));
+    wrap.querySelectorAll('[data-cancelissueforbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-issueforform="${b.dataset.cancelissueforbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-issueforconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.issueforconfirm;
+      const fullName = wrap.querySelector(`[data-issuefor-name="${id}"]`).value.trim();
+      const phone = wrap.querySelector(`[data-issuefor-phone="${id}"]`).value.trim();
+      const qtyRaw = wrap.querySelector(`[data-issuefor-qty="${id}"]`).value.trim();
+      const numsRaw = wrap.querySelector(`[data-issuefor-numbers="${id}"]`).value.trim();
+      const note = wrap.querySelector(`[data-issuefor-note="${id}"]`).value.trim();
+      if (!fullName || !phone){ alert('Customer name and phone are required'); return; }
+      if (!qtyRaw && !numsRaw){ alert('Enter a quantity or specific numbers'); return; }
+      const body = { raffleId: id, fullName, phone, note: note || undefined };
+      if (numsRaw) {
+        body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      } else {
+        body.quantity = qtyRaw;
+      }
+      b.disabled = true;
+      try{
+        const res = await api('/orders/manual', { method:'POST', body: JSON.stringify(body) });
+        alert(`Issued ${res.order.ticketNumbers.length} ticket(s) to ${fullName}: ${res.order.ticketNumbers.join(', ')}`);
         loadRaffles(); loadSummary(); loadOrders();
       }catch(e){ alert(e.message); }
       finally{ b.disabled = false; }
