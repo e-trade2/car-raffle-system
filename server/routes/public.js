@@ -179,7 +179,18 @@ router.get('/raffles/:id/numbers', (req, res) => {
 });
 
 // ---- Step 1: create order (reserve numbers, pending payment) ----
-router.post('/orders', (req, res) => {
+router.post('/orders', (req, res, next) => {
+  // Plain visibility log - separate from the [security] rate-limit/lockout
+  // warnings above. Those only fire when something is blocked; this fires
+  // on every attempt (success, validation error, or otherwise) so a
+  // "the button didn't work" report can actually be checked against the
+  // logs instead of leaving no trace either way.
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`[orders] POST /orders -> ${res.statusCode} (${Date.now() - start}ms) ip=${req.ip} raffleId=${req.body?.raffleId || 'n/a'} phone=${req.body?.phone || 'n/a'}`);
+  });
+  next();
+}, (req, res) => {
   if (isOrderCreateRateLimited(req.ip)) {
     reportLockout(`order-create-ip:${req.ip}`, `IP ${req.ip} exceeded ${ORDER_CREATE_MAX_ATTEMPTS} order-creation attempts in ${ORDER_CREATE_WINDOW_MS / 60000} minutes - possible ticket-hoarding/inventory-exhaustion abuse.`);
     return res.status(429).json({ error: 'Too many order attempts from this network. Please wait a bit and try again.' });
@@ -336,6 +347,15 @@ router.post('/orders/:id/cancel', (req, res) => {
 
 // ---- Step 2: attach payment (bank chosen + receipt image) ----
 router.post('/orders/:id/payment', (req, res, next) => {
+  // Same plain visibility log as POST /orders above - fires on every
+  // attempt regardless of outcome, since a multer/upload failure here
+  // (bad file, missing field, etc.) doesn't otherwise print anything.
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`[orders] POST /orders/${req.params.id}/payment -> ${res.statusCode} (${Date.now() - start}ms) ip=${req.ip}`);
+  });
+  next();
+}, (req, res, next) => {
   if (isPaymentUploadRateLimited(req.ip)) {
     reportLockout(`payment-upload-ip:${req.ip}`, `IP ${req.ip} exceeded ${PAYMENT_UPLOAD_MAX_ATTEMPTS} payment-upload attempts in ${PAYMENT_UPLOAD_WINDOW_MS / 60000} minutes.`);
     return res.status(429).json({ error: 'Too many upload attempts from this network. Please wait a bit and try again.' });
