@@ -131,6 +131,26 @@ const isReceiptViewRateLimited = makeIpRateLimiter(RECEIPT_VIEW_WINDOW_MS, RECEI
 
 const RESERVE_MINUTES = 30;
 
+// ---- Client-side error reporting ----
+// Lets the frontend (public/app.js) tell the server about uncaught JS
+// errors and unhandled promise rejections that happen in a customer's
+// browser - these would otherwise only exist in that customer's own
+// browser console, invisible to anyone here. Printed via console.error so
+// it shows up in Railway's Deploy Logs alongside real server errors.
+// Rate-limited per IP so a page that's crash-looping doesn't flood the
+// logs - this is diagnostic visibility, not something that needs every
+// single occurrence once the pattern is already clear.
+const CLIENT_LOG_WINDOW_MS = 15 * 60 * 1000;
+const CLIENT_LOG_MAX_ATTEMPTS = 30;
+const isClientLogRateLimited = makeIpRateLimiter(CLIENT_LOG_WINDOW_MS, CLIENT_LOG_MAX_ATTEMPTS);
+
+router.post('/client-log', (req, res) => {
+  if (isClientLogRateLimited(req.ip)) return res.status(429).json({ ok: false });
+  const { type, message, source, line, col, stack } = req.body || {};
+  console.error(`[client-error] type=${type || 'unknown'} message=${message || 'n/a'} source=${source || 'n/a'} line=${line ?? 'n/a'} col=${col ?? 'n/a'} ip=${req.ip}${stack ? `\nstack: ${stack}` : ''}`);
+  res.json({ ok: true });
+});
+
 // ---- List raffles ----
 router.get('/raffles', (req, res) => {
   let data = db.load();
