@@ -101,6 +101,7 @@ const TEXT = {
     badgeFeaturedLbl:"Featured",
     ongoingRafflesLbl:"Ongoing raffles", availableLbl:"available",
     newBadgeLbl:"NEW",
+    copyLbl:"Copy", copiedLbl:"Copied!",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -142,6 +143,7 @@ const TEXT = {
     badgeFeaturedLbl:"ተመራጭ",
     ongoingRafflesLbl:"በመካሄድ ላይ ያሉ ዕጣዎች", availableLbl:"ያሉ",
     newBadgeLbl:"አዲስ",
+    copyLbl:"ቅዳ", copiedLbl:"ተቀድቷል!",
   },
   om: {
     backLabel:"Duubatti", cdLabel:"GUYYA XUMURRA",
@@ -183,6 +185,7 @@ const TEXT = {
     badgeFeaturedLbl:"Addaa",
     ongoingRafflesLbl:"Lotoriwwan Jiran", availableLbl:"jira",
     newBadgeLbl:"HAARAA",
+    copyLbl:"Kopii", copiedLbl:"Kopiidhameera!",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -961,6 +964,7 @@ function renderCheckoutStep2(banks){
             <div class="copy-account-btn" data-copy="${esc(b.account)}" title="Copy account number">
               <svg class="icon-copy" width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke="currentColor" stroke-width="2"/></svg>
               <svg class="icon-check" width="15" height="15" viewBox="0 0 24 24" fill="none" style="display:none;"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="copy-account-label">${t('copyLbl')}</span>
             </div>
           </div>
         </div>`).join('')}
@@ -1007,12 +1011,14 @@ function renderCheckoutStep2(banks){
         btn.classList.add('copied');
         btn.querySelector('.icon-copy').style.display = 'none';
         btn.querySelector('.icon-check').style.display = '';
+        btn.querySelector('.copy-account-label').textContent = t('copiedLbl');
         btn.title = 'Copied!';
         showToast('Account number copied');
         setTimeout(()=>{
           btn.classList.remove('copied');
           btn.querySelector('.icon-copy').style.display = '';
           btn.querySelector('.icon-check').style.display = 'none';
+          btn.querySelector('.copy-account-label').textContent = t('copyLbl');
           btn.title = 'Copy account number';
         }, 1500);
       }).catch(()=> showToast('Could not copy'));
