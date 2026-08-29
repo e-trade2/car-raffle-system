@@ -14,6 +14,44 @@ if (window.Telegram && window.Telegram.WebApp) {
 
 const API = '/api';
 
+// Reports uncaught JS errors and unhandled promise rejections back to the
+// server. Without this, a crash on a customer's phone (e.g. a button that
+// silently does nothing because a script error happened before it could
+// respond) is only ever visible in that customer's own browser console -
+// which nobody here can see. This makes it show up in the server logs
+// instead. Best-effort only: if the report itself fails to send (offline,
+// etc.), it's dropped rather than retried, so a broken network can't turn
+// one client error into a loop.
+let clientLogCount = 0;
+const CLIENT_LOG_MAX = 20; // caps volume if something is throwing in a loop
+function reportClientError(payload){
+  if (clientLogCount >= CLIENT_LOG_MAX) return;
+  clientLogCount++;
+  fetch(`${API}/client-log`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  }).catch(()=>{});
+}
+window.addEventListener('error', (e) => {
+  reportClientError({
+    type: 'error',
+    message: e.message,
+    source: e.filename,
+    line: e.lineno,
+    col: e.colno,
+    stack: e.error && e.error.stack ? String(e.error.stack).slice(0, 800) : undefined
+  });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = e.reason;
+  reportClientError({
+    type: 'unhandledrejection',
+    message: reason && reason.message ? reason.message : String(reason),
+    stack: reason && reason.stack ? String(reason.stack).slice(0, 800) : undefined
+  });
+});
+
 // Raffle titles, subtitles, image URLs and bank details are admin-supplied
 // and rendered via innerHTML below. Escaping them means a bad/compromised
 // admin entry can't inject a script that runs in every visitor's browser.
