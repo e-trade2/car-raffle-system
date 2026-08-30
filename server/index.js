@@ -73,7 +73,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Named instance (rather than letting express-session create its own
+// internal default) so the pruning below can reach into it directly.
+// This is still the same in-memory store as before - not swapping to a
+// persistent backend - just adding the cleanup MemoryStore doesn't do on
+// its own, so expired admin sessions don't sit around in RAM forever.
+const sessionStore = new session.MemoryStore();
+
 app.use(session({
+  store: sessionStore,
   secret: getOrCreateSessionSecret(),
   resave: false,
   saveUninitialized: false,
@@ -90,6 +98,20 @@ app.use(session({
     sameSite: 'lax'
   }
 }));
+
+// MemoryStore doesn't sweep on its own timer, but it does delete an
+// expired session the moment it's touched (get/all internally check
+// cookie.expires and remove it if past). So a periodic .all() call is
+// enough to trigger that cleanup across every stored session, keeping
+// memory flat instead of slowly growing over weeks of admin logins.
+// Fine for a single instance/low login volume; a persistent store (e.g.
+// Postgres via Supabase) would be the next step if this ever runs as
+// multiple instances, since sessions here still wouldn't be shared
+// across them.
+const SESSION_PRUNE_INTERVAL_MS = 60 * 60 * 1000; // hourly
+setInterval(() => {
+  sessionStore.all(() => {});
+}, SESSION_PRUNE_INTERVAL_MS).unref();
 
 // Car photos (raffle listing images) are public marketing content, so they
 // stay served as plain static files. Payment receipts live in this same
