@@ -1,1158 +1,796 @@
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const { randomInt, randomBytes, createHash, timingSafeEqual } = require('crypto');
-const { nanoid } = require('nanoid');
-const db = require('../db');
-const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers, maskWinnerName } = require('../utils');
-const { reportLockout, sendMail } = require('../alerts');
-const { notifyCustomer, notifyAdmin, findChatIdByUsername, sendTelegramMessage } = require('../telegram');
-const { getClient: getSupabaseClient } = require('../supabase-sync');
+const API = '/api/admin';
 
-const router = express.Router();
+// Buyer-submitted fields (fullName, phone, raffle titles, receipt paths, etc.)
+// are rendered via innerHTML below. Escape them so a malicious order can't
+// inject a script tag that runs in the admin's session.
+function esc(str){
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
 
-// Used to equalize login response time whether or not the username exists -
-// see the timing-safety comment on the /login handler below.
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-password-just-for-timing', 10);
+function showErr(el, msg){ el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
 
-// ---- Car photo upload (raffle images) ----
-const carPhotosDir = path.join(__dirname, '..', '..', 'uploads', 'cars');
-if (!fs.existsSync(carPhotosDir)) fs.mkdirSync(carPhotosDir, { recursive: true });
+async function api(path, opts={}){
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    ...opts
+  });
+  const data = await res.json().catch(()=> ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+async function apiForm(path, formData){
+  const res = await fetch(API + path, { method:'POST', credentials:'same-origin', body: formData });
+  const data = await res.json().catch(()=> ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
 
-const carPhotoStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, carPhotosDir),
-  filename: (req, file, cb) => {
-    // Same whitelist approach as receipt uploads in public.js - never trust
-    // a client-supplied filename/extension directly.
-    const rawExt = path.extname(file.originalname).toLowerCase();
-    const ext = /^\.(jpg|jpeg|png|gif|webp)$/.test(rawExt) ? rawExt : '.jpg';
-    cb(null, `${Date.now()}_${nanoid(6)}${ext}`);
-  }
-});
-const uploadCarPhoto = multer({
-  storage: carPhotoStorage,
-  limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (/^image\//.test(file.mimetype)) cb(null, true);
-    else cb(new Error('Only image files are allowed for car photos'));
-  }
-});
-
-// Car photos have the same durability problem receipts had: saved to local
-// disk, which is wiped on every redeploy on hosts with an ephemeral
-// filesystem (Render free tier). Unlike receipts, these are shown directly
-// on the public storefront, so a wiped photo isn't just an admin
-// inconvenience - it's a broken image for every buyer browsing the site.
-// This bucket is PUBLIC (unlike the private receipts bucket), since car
-// photos are meant to be visible to anyone, with no auth gate needed.
-const CAR_PHOTOS_BUCKET = 'car-photos';
-let carPhotosBucketEnsured = false;
-async function ensureCarPhotosBucket() {
-  if (carPhotosBucketEnsured) return;
-  const supabase = getSupabaseClient();
-  if (!supabase) return;
-  try {
-    const { error } = await supabase.storage.createBucket(CAR_PHOTOS_BUCKET, { public: true });
-    if (error && !/already exists/i.test(error.message || '')) {
-      console.warn('⚠️  Could not create Supabase car-photos bucket:', error.message);
+// ===== Auth =====
+async function checkAuth(){
+  try{
+    const me = await api('/me');
+    document.getElementById('whoAmI').textContent = `Logged in as ${me.username}`;
+    document.getElementById('loginWrap').style.display = 'none';
+    document.getElementById('dashWrap').style.display = 'block';
+    const emailLabel = document.getElementById('currentEmailLabel');
+    if (emailLabel){
+      emailLabel.textContent = me.email
+        ? `Currently: ${me.email}`
+        : 'Not set - you won\'t be able to use "Forgot password?" until you add one.';
     }
-  } catch (err) {
-    console.warn('⚠️  Could not create Supabase car-photos bucket:', err.message);
-  } finally {
-    carPhotosBucketEnsured = true;
-  }
-}
-ensureCarPhotosBucket();
-
-function requireAuth(req, res, next) {
-  if (req.session && req.session.adminId) return next();
-  return res.status(401).json({ error: 'Not authenticated' });
-}
-
-// ---- Login brute-force protection ----
-// Two layers, since each catches a different attack shape:
-// 1. Per-IP sliding window - slows down a single scripted attacker hammering
-//    many usernames/passwords from one machine. In-memory only (resets on
-//    restart) since it's meant to throttle a live attack, not act as a
-//    permanent ban list.
-// 2. Per-account lockout - protects a specific admin account even if the
-//    attacker spreads attempts across many IPs/botnets. Persisted in
-//    data/db.json so it survives restarts.
-const LOGIN_IP_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_IP_MAX_ATTEMPTS = 20;
-const loginAttemptsByIp = new Map(); // ip -> { count, windowStart }
-
-function isIpRateLimited(ip) {
-  const now = Date.now();
-  const entry = loginAttemptsByIp.get(ip);
-  if (!entry || now - entry.windowStart > LOGIN_IP_WINDOW_MS) {
-    loginAttemptsByIp.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > LOGIN_IP_MAX_ATTEMPTS;
-}
-
-const ACCOUNT_MAX_FAILED_ATTEMPTS = 5;
-const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
-
-// Separate from the login limiter above - these two endpoints have their
-// own cost/abuse shape (forgot-password sends a real email each time;
-// reset-password lets someone try many token guesses). Tighter caps than
-// login since there's no legitimate reason to hit either one often.
-const RESET_IP_WINDOW_MS = 15 * 60 * 1000;
-const RESET_IP_MAX_ATTEMPTS = 8;
-const resetAttemptsByIp = new Map();
-function isResetIpRateLimited(ip) {
-  const now = Date.now();
-  const entry = resetAttemptsByIp.get(ip);
-  if (!entry || now - entry.windowStart > RESET_IP_WINDOW_MS) {
-    resetAttemptsByIp.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > RESET_IP_MAX_ATTEMPTS;
-}
-
-const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
-
-function hashToken(token) {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-// ---- Auth ----
-router.post('/login', (req, res) => {
-  if (isIpRateLimited(req.ip)) {
-    reportLockout(`ip:${req.ip}`, `IP ${req.ip} exceeded ${LOGIN_IP_MAX_ATTEMPTS} login attempts in ${LOGIN_IP_WINDOW_MS / 60000} minutes.`);
-    return res.status(429).json({ error: 'Too many login attempts from this network. Please try again later.' });
-  }
-
-  const { username, password } = req.body;
-  const data = db.load();
-  const admin = data.admins.find(a => a.username === username);
-
-  // Locked accounts are rejected before checking the password at all, so a
-  // correct password doesn't quietly bypass the lockout.
-  if (admin && admin.lockedUntil && new Date(admin.lockedUntil).getTime() > Date.now()) {
-    const minsLeft = Math.max(1, Math.ceil((new Date(admin.lockedUntil).getTime() - Date.now()) / 60000));
-    return res.status(429).json({ error: `Account temporarily locked after repeated failed logins. Try again in ${minsLeft} minute(s).` });
-  }
-
-  // Always run bcrypt against *something*, even when the username doesn't
-  // exist, and only branch on the result afterwards. bcrypt.compareSync is
-  // deliberately slow (~50-100ms at cost factor 10) - short-circuiting past
-  // it for unknown usernames would make existing-vs-nonexistent accounts
-  // distinguishable purely by response time, even though the error message
-  // below is identical either way.
-  const passwordMatches = bcrypt.compareSync(password || '', admin ? admin.passwordHash : DUMMY_PASSWORD_HASH);
-  const valid = !!admin && passwordMatches;
-  if (!valid) {
-    if (admin) {
-      admin.failedLoginAttempts = (admin.failedLoginAttempts || 0) + 1;
-      if (admin.failedLoginAttempts >= ACCOUNT_MAX_FAILED_ATTEMPTS) {
-        admin.lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MS).toISOString();
-        admin.failedLoginAttempts = 0;
-        db.save(data);
-        reportLockout(`account:${admin.username}`, `Admin account "${admin.username}" locked for 15 minutes after ${ACCOUNT_MAX_FAILED_ATTEMPTS} failed login attempts (from IP ${req.ip}).`);
-        return res.status(429).json({ error: 'Too many failed attempts. This account is locked for 15 minutes.' });
-      }
-      db.save(data);
+    const tgLabel = document.getElementById('telegramStatusLabel');
+    const tgInput = document.getElementById('newTelegramUsername');
+    if (tgLabel){
+      tgLabel.textContent = me.telegramUsername
+        ? (me.telegramLinked ? `Linked: @${me.telegramUsername}` : `@${me.telegramUsername} saved, but not linked yet - see below.`)
+        : 'Not set - you won\'t be notified when a new order needs approval.';
     }
-    // Same generic message whether the username doesn't exist or the
-    // password is wrong, so login can't be used to enumerate valid usernames.
-    return res.status(401).json({ error: 'Invalid username or password' });
+    if (tgInput && !tgInput.value) tgInput.value = me.telegramUsername || '';
+    initDashboard();
+  }catch(e){
+    document.getElementById('loginWrap').style.display = 'block';
+    document.getElementById('dashWrap').style.display = 'none';
   }
+}
 
-  admin.failedLoginAttempts = 0;
-  admin.lockedUntil = null;
-  db.save(data);
-  req.session.adminId = admin.id;
-  res.json({ ok: true, username: admin.username });
+document.getElementById('loginBtn').addEventListener('click', async ()=>{
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginErr');
+  showErr(errEl, '');
+  try{
+    await api('/login', { method:'POST', body: JSON.stringify({ username, password }) });
+    checkAuth();
+  }catch(e){ showErr(errEl, e.message); }
 });
 
-router.post('/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+  await api('/logout', { method:'POST' });
+  checkAuth();
 });
 
-router.get('/me', (req, res) => {
-  if (!req.session.adminId) return res.status(401).json({ error: 'Not authenticated' });
-  const data = db.load();
-  const admin = data.admins.find(a => a.id === req.session.adminId);
-  if (!admin) return res.status(401).json({ error: 'Not authenticated' });
-  res.json({
-    username: admin.username,
-    email: admin.email || null,
-    telegramUsername: admin.telegramUsername || null,
-    telegramLinked: Boolean(admin.telegramChatId)
+// ===== Tabs =====
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.panel).classList.add('active');
   });
 });
 
-// ---- Forgot / reset password ----
-// Deliberately public (no requireAuth) - that's the entire point, someone
-// using this has no valid session. Both routes always return the same
-// generic response shape regardless of whether the username/token was
-// real, so this can't be used to enumerate which usernames exist or
-// whether a given token is merely expired vs never valid.
-router.post('/forgot-password', async (req, res) => {
-  if (isResetIpRateLimited(req.ip)) {
-    reportLockout(`reset-request-ip:${req.ip}`, `IP ${req.ip} exceeded ${RESET_IP_MAX_ATTEMPTS} password-reset requests in ${RESET_IP_WINDOW_MS / 60000} minutes.`);
-    return res.status(429).json({ error: 'Too many requests from this network. Please wait a bit and try again.' });
-  }
+function initDashboard(){
+  loadSummary();
+  loadOrders();
+  loadRaffles();
+  loadBanks();
+  loadTelegramUsers();
+  loadAnnouncements();
+}
 
-  const generic = { ok: true, message: 'If that account exists and has a recovery email set, a reset link has been sent to it.' };
-  const username = String((req.body && req.body.username) || '').trim();
-  if (!username) return res.json(generic);
+// ===== Summary =====
+async function loadSummary(){
+  try{
+    const s = await api('/summary');
+    document.getElementById('statCards').innerHTML = `
+      <div class="stat-card"><div class="num">${s.raffleCount}</div><div class="lbl">Raffles</div></div>
+      <div class="stat-card"><div class="num">${s.pendingOrders}</div><div class="lbl">Pending Review</div></div>
+      <div class="stat-card"><div class="num">${s.confirmedOrders}</div><div class="lbl">Confirmed Orders</div></div>
+      <div class="stat-card"><div class="num">${s.revenue.toLocaleString()}</div><div class="lbl">Revenue (Birr)</div></div>
+      <div class="stat-card"><div class="num">${s.telegramRegisteredCount}</div><div class="lbl">Registered (Shared Phone)</div></div>
+    `;
+  }catch(e){ console.error(e); }
+}
 
-  const data = db.load();
-  const admin = data.admins.find(a => a.username === username);
-  if (!admin || !admin.email) return res.json(generic); // same response either way - see comment above
+// ===== Telegram Users (shared phone with the bot) =====
+async function loadTelegramUsers(){
+  try{
+    const data = await api('/telegram-users');
+    const badge = document.getElementById('telegramTotalBadge');
+    if (badge) badge.textContent = `(${data.total} total)`;
+    renderTelegramUsers(data.users);
+  }catch(e){ console.error(e); }
+}
 
-  const token = randomBytes(32).toString('hex');
-  admin.resetTokenHash = hashToken(token);
-  admin.resetTokenExpiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
-  db.save(data);
+function renderTelegramUsers(users){
+  const body = document.getElementById('telegramUsersBody');
+  const empty = document.getElementById('telegramUsersEmpty');
+  if (!body) return;
+  if (!users.length){ body.innerHTML=''; if (empty) empty.style.display='block'; return; }
+  if (empty) empty.style.display = 'none';
+  body.innerHTML = users.map(u => `
+    <tr>
+      <td>${u.username ? '@'+esc(u.username) : '<span style="color:var(--text-secondary);">—</span>'}</td>
+      <td>${esc(u.fullName) || '<span style="color:var(--text-secondary);">—</span>'}</td>
+      <td>${esc(u.phone)}</td>
+      <td>${esc(u.telegramId)}</td>
+      <td>${new Date(u.updatedAt).toLocaleString()}</td>
+      <td>
+        <span class="badge ${u.banned ? 'banned' : 'active-status'}" ${u.banned && u.bannedReason ? `title="${esc(u.bannedReason)}"` : ''}>
+          ${u.banned ? 'Banned' : 'Active'}
+        </span>
+      </td>
+      <td>
+        ${u.banned
+          ? `<button class="btn-red" data-unban="${esc(u.telegramId)}">Unban</button>`
+          : `<button class="btn-red" data-ban="${esc(u.telegramId)}">Ban</button>`}
+      </td>
+    </tr>
+  `).join('');
 
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const resetLink = `${origin}/admin/reset-password.html?token=${token}`;
-
-  try {
-    await sendMail({
-      to: admin.email,
-      subject: 'Reset your raffle admin password',
-      text:
-        `Someone (hopefully you) requested a password reset for the admin account "${admin.username}".\n\n` +
-        `Reset your password here (expires in 30 minutes):\n${resetLink}\n\n` +
-        `If you didn't request this, you can ignore this email - your password hasn't been changed.`
-    });
-  } catch (err) {
-    console.error('[admin] Failed to send password-reset email:', err.message);
-    // Still return the generic response - don't reveal to the caller
-    // whether the account/email existed based on send success/failure.
-  }
-
-  res.json(generic);
-});
-
-router.post('/reset-password', (req, res) => {
-  if (isResetIpRateLimited(req.ip)) {
-    reportLockout(`reset-confirm-ip:${req.ip}`, `IP ${req.ip} exceeded ${RESET_IP_MAX_ATTEMPTS} password-reset confirmations in ${RESET_IP_WINDOW_MS / 60000} minutes - possible token guessing.`);
-    return res.status(429).json({ error: 'Too many attempts from this network. Please wait a bit and try again.' });
-  }
-
-  const { token, newPassword } = req.body || {};
-  if (!token || !newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'A valid reset link and a new password (6+ characters) are required.' });
-  }
-
-  const data = db.load();
-  const tokenHash = hashToken(token);
-  const tokenHashBuf = Buffer.from(tokenHash);
-  const admin = data.admins.find(a => {
-    if (!a.resetTokenHash) return false;
-    const storedBuf = Buffer.from(a.resetTokenHash);
-    return storedBuf.length === tokenHashBuf.length && timingSafeEqual(storedBuf, tokenHashBuf);
-  });
-
-  if (!admin || !admin.resetTokenExpiresAt || new Date(admin.resetTokenExpiresAt).getTime() < Date.now()) {
-    return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
-  }
-
-  admin.passwordHash = bcrypt.hashSync(newPassword, 10);
-  admin.resetTokenHash = null;
-  admin.resetTokenExpiresAt = null;
-  // A legitimate reset just proved account ownership via email - no reason
-  // to keep an unrelated login lockout in effect afterwards.
-  admin.failedLoginAttempts = 0;
-  admin.lockedUntil = null;
-  db.save(data);
-
-  res.json({ ok: true });
-});
-
-router.post('/change-password', requireAuth, (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters' });
-  }
-  const data = db.load();
-  const admin = data.admins.find(a => a.id === req.session.adminId);
-  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
-    return res.status(401).json({ error: 'Current password is incorrect' });
-  }
-  admin.passwordHash = bcrypt.hashSync(newPassword, 10);
-  db.save(data);
-  res.json({ ok: true });
-});
-
-router.post('/change-username', requireAuth, (req, res) => {
-  const { currentPassword, newUsername } = req.body;
-  const data = db.load();
-  const admin = data.admins.find(a => a.id === req.session.adminId);
-
-  // Require the current password before changing the username, same as
-  // change-password - otherwise an unattended/hijacked logged-in session
-  // could silently take over the account identity without knowing the
-  // credentials, which would also let someone lock the real admin out by
-  // renaming the account they think they're logging into.
-  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
-    return res.status(401).json({ error: 'Current password is incorrect' });
-  }
-
-  const trimmed = String(newUsername || '').trim();
-  if (!trimmed) {
-    return res.status(400).json({ error: 'New username is required' });
-  }
-  if (trimmed.length < 3 || trimmed.length > 32) {
-    return res.status(400).json({ error: 'Username must be between 3 and 32 characters' });
-  }
-  // Whitelist characters - a username is later rendered as plain text in
-  // the admin UI (safe either way via textContent), but also flows into
-  // login lookups, so keep it to a predictable, unambiguous character set.
-  if (!/^[a-zA-Z0-9_.-]+$/.test(trimmed)) {
-    return res.status(400).json({ error: 'Username can only contain letters, numbers, underscores, dots, and hyphens' });
-  }
-  // Case-insensitive uniqueness check. Only one admin exists today, but this
-  // keeps the check correct if multi-admin support is added later, and
-  // stops a same-letters-different-case "change" from silently no-op'ing.
-  const clash = data.admins.find(a => a.id !== admin.id && a.username.toLowerCase() === trimmed.toLowerCase());
-  if (clash) {
-    return res.status(409).json({ error: 'That username is already taken' });
-  }
-
-  admin.username = trimmed;
-  db.save(data);
-  res.json({ ok: true, username: admin.username });
-});
-
-router.post('/account/email', requireAuth, (req, res) => {
-  const { currentPassword, email } = req.body;
-  const data = db.load();
-  const admin = data.admins.find(a => a.id === req.session.adminId);
-
-  // Same reasoning as change-password/change-username: require the current
-  // password before changing this, since it's the account's recovery
-  // mechanism - a hijacked/unattended session shouldn't be able to
-  // silently redirect password resets to an attacker-controlled inbox.
-  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
-    return res.status(401).json({ error: 'Current password is incorrect' });
-  }
-
-  const trimmed = String(email || '').trim();
-  if (trimmed) {
-    // Deliberately simple format check, not full RFC 5322 validation -
-    // the real proof this address works happens when they click a reset
-    // link sent to it, not at save time.
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
-    }
-    admin.email = trimmed;
-  } else {
-    admin.email = null; // explicit clear
-  }
-  db.save(data);
-  res.json({ ok: true, email: admin.email });
-});
-
-// ---- Telegram notifications (order-approval pings) ----
-// Two-step, same reasoning as a linked customer (see db.js
-// upsertTelegramUser): a username alone can't be messaged - Telegram's
-// Bot API only ever accepts a numeric chat id for a private DM - so this
-// is split into "save the handle" (here) and "resolve it to a chat id"
-// (POST /telegram/link-account below), which the admin triggers after
-// actually messaging the bot at least once.
-router.post('/account/telegram', requireAuth, (req, res) => {
-  const { currentPassword, telegramUsername } = req.body;
-  const data = db.load();
-  const admin = data.admins.find(a => a.id === req.session.adminId);
-
-  // Same reasoning as change-password/change-username/account-email: this
-  // controls where order-approval notifications go, so an
-  // unattended/hijacked session shouldn't be able to silently redirect
-  // them without the real admin's password.
-  if (!bcrypt.compareSync(currentPassword || '', admin.passwordHash)) {
-    return res.status(401).json({ error: 'Current password is incorrect' });
-  }
-
-  const trimmed = String(telegramUsername || '').trim().replace(/^@/, '');
-  if (trimmed) {
-    if (trimmed.length < 5 || trimmed.length > 32 || !/^[a-zA-Z0-9_]+$/.test(trimmed)) {
-      return res.status(400).json({ error: 'That doesn\'t look like a valid Telegram username' });
-    }
-    // Changing the username invalidates any chat id linked to the old one
-    // - they're not the same Telegram account until re-linked, and
-    // sending to a stale chat id would DM the wrong person.
-    if (admin.telegramUsername !== trimmed) admin.telegramChatId = null;
-    admin.telegramUsername = trimmed;
-  } else {
-    admin.telegramUsername = null;
-    admin.telegramChatId = null;
-  }
-  db.save(data);
-  res.json({ ok: true, telegramUsername: admin.telegramUsername, telegramLinked: Boolean(admin.telegramChatId) });
-});
-
-router.post('/telegram/link-account', requireAuth, async (req, res) => {
-  const data = db.load();
-  const admin = data.admins.find(a => a.id === req.session.adminId);
-  if (!admin.telegramUsername) {
-    return res.status(400).json({ error: 'Save your Telegram username first' });
-  }
-
-  try {
-    const chatId = await findChatIdByUsername(admin.telegramUsername);
-    if (!chatId) {
-      return res.status(404).json({
-        error: `No recent message from @${admin.telegramUsername} found. Open the bot in Telegram, send it any message (e.g. /start), then try again.`
+  body.querySelectorAll('[data-ban]').forEach(btn => btn.addEventListener('click', async () => {
+    const telegramId = btn.dataset.ban;
+    const reason = prompt('Reason for banning this user (optional):') || '';
+    if (!confirm('Ban this user? They will no longer be able to place new orders with their linked phone number.')) return;
+    try {
+      await api(`/telegram-users/${encodeURIComponent(telegramId)}/ban`, {
+        method: 'POST',
+        body: JSON.stringify({ reason })
       });
-    }
-    admin.telegramChatId = chatId;
-    db.save(data);
-    res.json({ ok: true, telegramLinked: true });
-  } catch (err) {
-    console.error('[admin] Telegram link-account failed:', err.message);
-    res.status(502).json({ error: 'Could not reach Telegram. Check TELEGRAM_BOT_TOKEN is set and try again.' });
+      loadTelegramUsers();
+    } catch (e) { alert(e.message); }
+  }));
+
+  body.querySelectorAll('[data-unban]').forEach(btn => btn.addEventListener('click', async () => {
+    const telegramId = btn.dataset.unban;
+    if (!confirm('Unban this user and allow them to place orders again?')) return;
+    try {
+      await api(`/telegram-users/${encodeURIComponent(telegramId)}/unban`, { method: 'POST' });
+      loadTelegramUsers();
+    } catch (e) { alert(e.message); }
+  }));
+}
+
+// ===== Announcements (site-wide, shown under the bell icon) =====
+async function loadAnnouncements(){
+  try{
+    const data = await api('/announcements');
+    renderAnnouncements(data.announcements);
+  }catch(e){ console.error(e); }
+}
+
+const ANN_TYPE_LABEL = { winner: '🏆 Winner', warning: '⚠️ Warning', update: '📢 Update' };
+
+function renderAnnouncements(list){
+  const body = document.getElementById('announcementsList');
+  const empty = document.getElementById('announcementsEmpty');
+  if (!body) return;
+  if (!list.length){ body.innerHTML=''; if (empty) empty.style.display='block'; return; }
+  if (empty) empty.style.display = 'none';
+  body.innerHTML = list.map(a => `
+    <div class="card" style="padding:14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--accent-gold);margin-bottom:4px;">${ANN_TYPE_LABEL[a.type] || ANN_TYPE_LABEL.update}</div>
+          <div style="font-weight:700;font-size:14px;">${esc(a.title)}</div>
+          ${a.winner ? `
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+            ${esc(a.winner.name)}${a.winner.phone ? ' · ' + esc(a.winner.phone) : ''}<br>
+            ${a.winner.lottery ? esc(a.winner.lottery) + ' — ' : ''}Ticket #${esc(a.winner.ticket)}${a.winner.prize ? ' — ' + esc(a.winner.prize) : ''}
+          </div>` : ''}
+          ${a.message ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;white-space:pre-wrap;">${esc(a.message)}</div>` : ''}
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">${new Date(a.createdAt).toLocaleString()}</div>
+        </div>
+        <button class="btn-red" data-delann="${esc(a.id)}" style="flex:none;">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  body.querySelectorAll('[data-delann]').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirm('Delete this announcement? It will disappear from the bell icon for all visitors.')) return;
+    try {
+      await api(`/announcements/${btn.dataset.delann}`, { method: 'DELETE' });
+      loadAnnouncements();
+    } catch (e) { alert(e.message); }
+  }));
+}
+
+document.getElementById('annType').addEventListener('change', (e) => {
+  const isWinner = e.target.value === 'winner';
+  document.getElementById('annWinnerFields').style.display = isWinner ? 'block' : 'none';
+  document.getElementById('annMessageField').style.display = isWinner ? 'none' : 'block';
+  document.getElementById('annWinnerNoteField').style.display = isWinner ? 'block' : 'none';
+});
+
+document.getElementById('postAnnBtn').addEventListener('click', async () => {
+  const title = document.getElementById('annTitle').value.trim();
+  const type = document.getElementById('annType').value;
+  const notifyTelegram = document.getElementById('annNotifyTelegram').checked;
+  const errEl = document.getElementById('annErr');
+  showErr(errEl, '');
+
+  if (!title){ showErr(errEl, 'Title is required'); return; }
+
+  let body;
+  if (type === 'winner'){
+    const winner = {
+      name: document.getElementById('annWinnerName').value.trim(),
+      phone: document.getElementById('annWinnerPhone').value.trim(),
+      lottery: document.getElementById('annWinnerLottery').value.trim(),
+      ticket: document.getElementById('annWinnerTicket').value.trim(),
+      prize: document.getElementById('annWinnerPrize').value.trim()
+    };
+    if (!winner.name){ showErr(errEl, 'Winner name is required'); return; }
+    if (!winner.ticket){ showErr(errEl, 'Winning ticket number is required'); return; }
+    body = { title, type, notifyTelegram, winner, message: document.getElementById('annWinnerNote').value.trim() };
+  } else {
+    const message = document.getElementById('annMessage').value.trim();
+    if (!message){ showErr(errEl, 'Message is required'); return; }
+    body = { title, type, notifyTelegram, message };
   }
+
+  try {
+    await api('/announcements', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('annTitle').value = '';
+    document.getElementById('annMessage').value = '';
+    document.getElementById('annWinnerNote').value = '';
+    document.getElementById('annWinnerName').value = '';
+    document.getElementById('annWinnerPhone').value = '';
+    document.getElementById('annWinnerLottery').value = '';
+    document.getElementById('annWinnerTicket').value = '';
+    document.getElementById('annWinnerPrize').value = '';
+    document.getElementById('annNotifyTelegram').checked = false;
+    loadAnnouncements();
+  } catch (e) { showErr(errEl, e.message); }
 });
 
-// everything below requires auth
-router.use(requireAuth);
+// ===== Orders =====
+async function loadOrders(){
+  const status = document.getElementById('orderStatusFilter').value;
+  try{
+    const data = await api(`/orders${status ? '?status='+status : ''}`);
+    renderOrders(data.orders);
+  }catch(e){ console.error(e); }
+}
 
-// ---- Dashboard summary ----
-router.get('/summary', (req, res) => {
-  const data = db.load();
-  const totalOrders = data.orders.length;
-  const pendingOrders = data.orders.filter(o => o.status === 'pending').length;
-  const confirmedOrders = data.orders.filter(o => o.status === 'confirmed').length;
-  const revenue = data.orders
-    .filter(o => o.status === 'confirmed')
-    .reduce((sum, o) => sum + o.total, 0);
-  res.json({
-    raffleCount: data.raffles.length,
-    totalOrders, pendingOrders, confirmedOrders, revenue,
-    // "Registered" = every distinct phone number the bot has ever recorded
-    // for a Telegram account, i.e. everyone who has shared their phone
-    // number with the bot at least once (regardless of whether they went
-    // on to place an order).
-    telegramRegisteredCount: data.telegramUsers.length
+function renderOrders(orders){
+  const body = document.getElementById('ordersBody');
+  const empty = document.getElementById('ordersEmpty');
+  if (!orders.length){ body.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  body.innerHTML = orders.map(o=> `
+    <tr>
+      <td>#${esc(o.id)}<br><span style="color:var(--text-tertiary);font-size:11px;">${new Date(o.createdAt).toLocaleString()}</span></td>
+      <td>${esc(o.raffleTitle)}</td>
+      <td>${esc(o.fullName)}<br><span style="color:var(--text-tertiary);font-size:11px;">${esc(o.phone)}</span></td>
+      <td>${o.ticketNumbers.map(n=>'#'+n).join(', ')}</td>
+      <td>${o.total.toLocaleString()} Birr</td>
+      <td>${o.receiptPath ? `<span class="receipt-link" data-receipt-id="${esc(o.id)}">View</span>` : '—'}${o.senderAccount ? `<br><span style="color:var(--text-tertiary);font-size:11px;">From: ${esc(o.senderAccount)}</span>` : ''}</td>
+      <td><span class="badge ${esc(o.status)}">${esc(o.status.replace('_',' '))}</span></td>
+      <td>
+        <div class="row-actions">
+          ${o.status === 'pending' ? `<button class="btn-green" data-approve="${o.id}">Approve</button><button class="btn-red" data-reject="${o.id}">Reject</button>` : ''}
+          ${o.status === 'awaiting_payment' ? `<button class="btn-red" data-reject="${o.id}">Cancel</button>` : ''}
+          ${o.status === 'confirmed' && o.adminTaken ? `<button class="btn-red" data-release="${o.id}">Release</button>` : ''}
+          ${o.status === 'confirmed' && !o.adminTaken ? `<button class="btn-red" data-unconfirm="${o.id}">Unconfirm</button>` : ''}
+          ${(['rejected','expired','released'].includes(o.status) || o.raffleStatus === 'ended') ? `<button class="btn-red" data-delete="${o.id}">Delete</button>` : ''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  body.querySelectorAll('[data-receipt-id]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      // Absolute path, not the api()/API-prefixed helper - this route lives
+      // under /api/orders/... (routes/public.js), not /api/admin/....
+      // Same-origin <img> requests send cookies automatically, so the
+      // existing admin session is what authenticates this.
+      document.getElementById('lightboxImg').src = `/api/orders/${encodeURIComponent(el.dataset.receiptId)}/receipt`;
+      document.getElementById('lightboxBackdrop').classList.add('show');
+    });
   });
-});
+  body.querySelectorAll('[data-approve]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.approve}/approve`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-reject]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.reject}/reject`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-release]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if (!confirm('Release these tickets back to available? Anyone will be able to pick these numbers again.')) return;
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.release}/admin-release`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-unconfirm]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      // Unlike approve/reject, this reverses something already counted as
+      // real revenue and a sold number - worth one extra click of friction
+      // so a stray misclick can't chain into a second one.
+      if (!confirm('Unconfirm this order? It will go back to Pending and its ticket numbers will be held (not released) until you approve or reject it again.')) return;
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.unconfirm}/unconfirm`, { method:'POST' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+  body.querySelectorAll('[data-delete]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      // Deleting is permanent - there's no reject/unconfirm to undo this
+      // with afterward, so this confirm is more emphatic than the others.
+      if (!confirm('Permanently delete this order? This cannot be undone - the order record, buyer details and receipt link will be gone for good.')) return;
+      btn.disabled = true;
+      try{ await api(`/orders/${btn.dataset.delete}`, { method:'DELETE' }); loadOrders(); loadSummary(); loadRaffles(); }
+      catch(e){ alert(e.message); btn.disabled = false; }
+    });
+  });
+}
+document.getElementById('orderStatusFilter').addEventListener('change', loadOrders);
+document.getElementById('refreshOrdersBtn').addEventListener('click', ()=>{ loadOrders(); loadSummary(); });
+document.getElementById('lightboxBackdrop').addEventListener('click', ()=> document.getElementById('lightboxBackdrop').classList.remove('show'));
 
-// ---- Telegram users who shared their phone number with the bot ----
-router.get('/telegram-users', (req, res) => {
-  const data = db.load();
-  const users = [...data.telegramUsers]
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-    .map(u => ({
-      telegramId: u.telegramId,
-      username: u.username || null,
-      fullName: u.fullName || '',
-      phone: u.phone,
-      updatedAt: u.updatedAt,
-      banned: Boolean(u.banned),
-      bannedAt: u.bannedAt || null,
-      bannedReason: u.bannedReason || null
+// ===== Raffles =====
+// Converts an ISO date string into the "YYYY-MM-DDTHH:mm" format required
+// by <input type="datetime-local">, using local time.
+function toLocalInputValue(isoString){
+  const d = new Date(isoString);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function loadRaffles(){
+  try{
+    const data = await api('/raffles');
+    const wrap = document.getElementById('rafflesList');
+    if (!data.raffles.length){ wrap.innerHTML = '<div class="empty-msg">No raffles yet</div>'; return; }
+    wrap.innerHTML = data.raffles.map(r=> `
+      <div class="raffle-item">
+        <div>
+          <div style="font-weight:700;">${r.raffleNumber ? `#${r.raffleNumber} · ` : ''}${esc(r.title)} <span style="color:var(--text-tertiary);font-weight:400;">${esc(r.subtitle||'')}</span></div>
+          <div style="font-size:12px;color:var(--text-tertiary);">${r.price.toLocaleString()} Birr · ${r.soldCount}/${r.totalNumbers} sold · ${esc(r.status)}</div>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;">
+            Draw date: <span data-drawlabel="${r.id}">${r.drawAt ? new Date(r.drawAt).toLocaleString() : '—'}</span>
+          </div>
+        </div>
+        <div class="row-actions">
+          <input type="datetime-local" data-drawinput="${r.id}" value="${r.drawAt ? toLocalInputValue(r.drawAt) : ''}">
+          <button class="btn-outline" data-updatedate="${r.id}">Update Date</button>
+          <input type="file" accept="image/*" style="display:none" data-photoinput="${r.id}">
+          <button class="btn-outline" data-photobtn="${r.id}">${r.imageUrl ? 'Change Photo' : 'Add Photo'}</button>
+          <button class="btn-outline" data-editbtn="${r.id}">Edit</button>
+          <button class="btn-outline" data-taketicketsbtn="${r.id}">Take Tickets</button>
+          <button class="btn-outline" data-releaseticketsbtn="${r.id}">Release Tickets</button>
+          <button class="btn-outline" data-issueforbtn="${r.id}">Approve Ticket</button>
+          ${r.status==='active' ? `<button class="btn-outline" data-end="${r.id}">End</button>` : `<button class="btn-outline" data-activate="${r.id}">Activate</button>`}
+          <button class="btn-green" data-draw="${r.id}">Draw Winner</button>
+          <button class="btn-red" data-delete="${r.id}">Delete</button>
+        </div>
+        <div class="raffle-edit-form" data-taketicketsform="${r.id}" style="display:none;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Marks tickets as taken directly with no order/payment - use for reserving numbers yourself, giveaways, or offline sales. ${r.remaining} of ${r.totalNumbers} still available.</p>
+          <div class="grid2">
+            <div><label>Quantity (random pick)</label><input type="number" min="1" max="${r.remaining}" placeholder="e.g. 100" data-take-qty="${r.id}"></div>
+            <div><label>Or specific numbers (comma separated)</label><input type="text" placeholder="e.g. 5, 12, 40" data-take-numbers="${r.id}"></div>
+          </div>
+          <div><label>Note (optional, e.g. who it's for)</label><input type="text" placeholder="e.g. Reserved for family" data-take-note="${r.id}"></div>
+          <div class="row-actions">
+            <button class="btn-gold" style="max-width:160px;" data-taketicketsconfirm="${r.id}">Take Tickets</button>
+            <button class="btn-outline" data-canceltaketicketsbtn="${r.id}">Cancel</button>
+          </div>
+        </div>
+        <div class="raffle-edit-form" data-releaseticketsform="${r.id}" style="display:none;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Releases tickets taken directly by the admin (via Take Tickets above) back to available. This does not touch real customer orders - use Unconfirm on the Orders tab for those.</p>
+          <div style="font-size:12px;color:var(--text-tertiary);margin:0 0 8px;" data-release-current="${r.id}">Loading currently admin-taken numbers…</div>
+          <div><label>Specific numbers to release (comma separated) - leave blank to release all of them</label><input type="text" placeholder="e.g. 5, 12, 40" data-release-numbers="${r.id}"></div>
+          <div class="row-actions">
+            <button class="btn-red" data-releaseticketsconfirm="${r.id}">Release Tickets</button>
+            <button class="btn-outline" data-cancelreleaseticketsbtn="${r.id}">Cancel</button>
+          </div>
+        </div>
+        <div class="raffle-edit-form" data-issueforform="${r.id}" style="display:none;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Creates a real, already-confirmed ticket under this customer's own phone number and sends them an approval notification - use when they paid you directly (cash, phone transfer) but couldn't finish checkout in the app. It counts toward revenue, and will show up automatically in their own "My Tickets" if that phone is linked with the Telegram bot. ${r.remaining} of ${r.totalNumbers} still available.</p>
+          <div class="grid2">
+            <div><label>Customer Full Name</label><input type="text" placeholder="e.g. Almaz Tesfaye" data-issuefor-name="${r.id}"></div>
+            <div><label>Customer Phone Number</label><input type="text" placeholder="e.g. 251912345678" data-issuefor-phone="${r.id}"></div>
+          </div>
+          <div class="grid2">
+            <div><label>Quantity (random pick)</label><input type="number" min="1" max="${r.remaining}" placeholder="e.g. 1" data-issuefor-qty="${r.id}"></div>
+            <div><label>Or specific numbers (comma separated)</label><input type="text" placeholder="e.g. 5, 12, 40" data-issuefor-numbers="${r.id}"></div>
+          </div>
+          <div class="grid2">
+            <div><label>Note (optional, internal only)</label><input type="text" placeholder="e.g. Paid via CBE transfer, confirmed by phone call" data-issuefor-note="${r.id}"></div>
+            <div><label>Telegram Username (optional - fallback if phone doesn't match their linked account)</label><input type="text" placeholder="e.g. sintayehu_a" data-issuefor-username="${r.id}"></div>
+          </div>
+          <div class="row-actions">
+            <button class="btn-gold" style="max-width:200px;" data-issueforconfirm="${r.id}">Approve Ticket</button>
+            <button class="btn-outline" data-cancelissueforbtn="${r.id}">Cancel</button>
+          </div>
+        </div>
+        <div class="raffle-edit-form" data-editform="${r.id}" style="display:none;">
+          <div class="grid2">
+            <div><label>Raffle Number</label><input type="number" min="1" step="1" data-edit-rafflenumber="${r.id}" value="${r.raffleNumber||''}"></div>
+            <div><label>Title</label><input type="text" data-edit-title="${r.id}" value="${esc(r.title)}"></div>
+            <div><label>Subtitle / Color</label><input type="text" data-edit-subtitle="${r.id}" value="${esc(r.subtitle||'')}"></div>
+            <div><label>Ticket Price (Birr)</label><input type="number" data-edit-price="${r.id}" value="${r.price}"></div>
+            <div><label>Total Numbers</label><input type="number" data-edit-totalnumbers="${r.id}" value="${r.totalNumbers}"></div>
+            <div><label>Badge</label><select data-edit-badge="${r.id}">
+              <option value="none" ${r.badge==='none'?'selected':''}>None</option>
+              <option value="new" ${r.badge==='new'?'selected':''}>New</option>
+              <option value="hot" ${r.badge==='hot'?'selected':''}>Hot / Featured</option>
+            </select></div>
+            <div><label>Rating</label><input type="number" step="0.1" max="5" min="0" data-edit-rating="${r.id}" value="${r.rating}"></div>
+          </div>
+          <div class="row-actions">
+            <button class="btn-gold" style="max-width:160px;" data-savebtn="${r.id}">Save Changes</button>
+            <button class="btn-outline" data-canceleditbtn="${r.id}">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    wrap.querySelectorAll('[data-editbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      const id = b.dataset.editbtn;
+      const form = wrap.querySelector(`[data-editform="${id}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
     }));
-  res.json({ total: users.length, users });
-});
-
-// ---- Ban / unban a Telegram user ----
-// Banning blocks that person's linked phone number from creating new
-// orders (see isPhoneBanned in db.js, enforced in routes/public.js POST
-// /orders). It does not touch any order already placed - existing orders
-// still go through their normal awaiting_payment/pending/confirmed flow;
-// an admin who wants to also undo a specific order should reject it
-// separately from the Orders tab.
-router.post('/telegram-users/:telegramId/ban', (req, res) => {
-  const data = db.load();
-  const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 300) : '';
-  const user = db.banTelegramUser(data, req.params.telegramId, reason);
-  if (!user) return res.status(404).json({ error: 'Telegram user not found' });
-  db.save(data);
-  res.json({ ok: true, user });
-});
-
-router.post('/telegram-users/:telegramId/unban', (req, res) => {
-  const data = db.load();
-  const user = db.unbanTelegramUser(data, req.params.telegramId);
-  if (!user) return res.status(404).json({ error: 'Telegram user not found' });
-  db.save(data);
-  res.json({ ok: true, user });
-});
-
-// ---- Announcements (site-wide broadcast, shown under the bell icon) ----
-// General-purpose messaging: winner news, warnings, updates - anything the
-// admin wants every visitor to see. Always saved to data.announcements so
-// it shows in the customer app's notification panel (GET /api/announcements
-// in routes/public.js) regardless of Telegram. Optionally ALSO pushed as a
-// Telegram DM to every user who has linked their phone, for the subset of
-// users who'll actually see a push notification for it rather than having
-// to open the app and check the bell.
-router.get('/announcements', (req, res) => {
-  const data = db.load();
-  res.json({ announcements: data.announcements || [] });
-});
-
-router.post('/announcements', (req, res) => {
-  const { title, message, type, notifyTelegram, winner } = req.body || {};
-  if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
-  const isWinner = type === 'winner';
-  // A winner announcement is meaningless without at least a name and a
-  // ticket number - everything else in `winner` (phone, lottery, prize) is
-  // optional so the admin isn't blocked if e.g. the raffle has no subtitle.
-  if (isWinner) {
-    if (!winner || !winner.name || !winner.name.trim()) return res.status(400).json({ error: 'Winner name is required' });
-    if (!winner.ticket || !String(winner.ticket).trim()) return res.status(400).json({ error: 'Winning ticket number is required' });
-  } else if (!message || !message.trim()) {
-    return res.status(400).json({ error: 'Message is required' });
-  }
-
-  const data = db.load();
-  const announcement = db.createAnnouncement(data, { title, message, type, winner });
-  db.save(data);
-  res.status(201).json({ announcement });
-
-  // Fire-and-forget, same pattern as notifyCustomer call sites elsewhere in
-  // this file: never block the HTTP response on Telegram delivery, and one
-  // blocked/broken recipient must not stop the rest from being messaged.
-  // Skips banned users deliberately - a warning/update isn't meant to
-  // reach someone the admin has already banned.
-  if (notifyTelegram) {
-    const recipients = (data.telegramUsers || []).filter(u => !u.banned);
-    const text = isWinner
-      ? `🏆 ${announcement.title}\n\n` +
-        `Winner: ${winner.name}${winner.phone ? ` (${winner.phone})` : ''}\n` +
-        (winner.lottery ? `Lottery: ${winner.lottery}\n` : '') +
-        `Winning ticket: #${winner.ticket}\n` +
-        (winner.prize ? `Prize: ${winner.prize}\n` : '') +
-        (announcement.message ? `\n${announcement.message}` : '')
-      : `${announcement.title}\n\n${announcement.message}`;
-    Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
-      .then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length;
-        if (failed) console.warn(`[announcements] ${failed}/${recipients.length} Telegram sends failed for announcement ${announcement.id}`);
-      });
-  }
-});
-
-router.delete('/announcements/:id', (req, res) => {
-  const data = db.load();
-  const removed = db.deleteAnnouncement(data, req.params.id);
-  if (!removed) return res.status(404).json({ error: 'Announcement not found' });
-  db.save(data);
-  res.json({ ok: true });
-});
-
-// ---- Raffles CRUD ----
-router.get('/raffles', (req, res) => {
-  const data = db.load();
-  res.json({ raffles: data.raffles.map(r => ({ ...publicRaffle(r), takenNumbers: r.takenNumbers })) });
-});
-
-// Upload a car photo -> returns { imageUrl } to plug into raffle create/edit.
-// Kept as its own step (rather than bundled into raffle create/edit) so the
-// admin form can show a preview immediately and so raffle create/edit can
-// stay simple JSON instead of multipart.
-router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
-  // Same reasoning as the receipt upload in public.js - the client-declared
-  // mimetype fileFilter checked isn't proof of what was actually written to
-  // disk, so confirm the real file signature before trusting it.
-  verifyUploadedImage(req.file.path, async (verifyErr) => {
-    if (verifyErr) return res.status(400).json({ error: verifyErr.message });
-
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      try {
-        const fileBuffer = fs.readFileSync(req.file.path);
-        const objectPath = req.file.filename;
-        const { error: uploadErr } = await supabase.storage
-          .from(CAR_PHOTOS_BUCKET)
-          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
-        fs.unlink(req.file.path, () => {}); // only ever needed locally for the signature check above
-        if (uploadErr) {
-          console.warn('⚠️  Supabase car photo upload failed:', uploadErr.message);
-          return res.status(502).json({ error: 'Could not store the photo. Please try again.' });
-        }
-        const { data: pub } = supabase.storage.from(CAR_PHOTOS_BUCKET).getPublicUrl(objectPath);
-        return res.json({ imageUrl: pub.publicUrl });
-      } catch (err) {
-        fs.unlink(req.file.path, () => {});
-        console.warn('⚠️  Supabase car photo upload failed:', err.message);
-        return res.status(502).json({ error: 'Could not store the photo. Please try again.' });
+    wrap.querySelectorAll('[data-canceleditbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-editform="${b.dataset.canceleditbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-taketicketsbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      const id = b.dataset.taketicketsbtn;
+      const form = wrap.querySelector(`[data-taketicketsform="${id}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }));
+    wrap.querySelectorAll('[data-canceltaketicketsbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-taketicketsform="${b.dataset.canceltaketicketsbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-taketicketsconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.taketicketsconfirm;
+      const qtyRaw = wrap.querySelector(`[data-take-qty="${id}"]`).value.trim();
+      const numsRaw = wrap.querySelector(`[data-take-numbers="${id}"]`).value.trim();
+      const note = wrap.querySelector(`[data-take-note="${id}"]`).value.trim();
+      if (!qtyRaw && !numsRaw){ alert('Enter a quantity or specific numbers'); return; }
+      const body = { note: note || undefined };
+      if (numsRaw) {
+        body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      } else {
+        body.quantity = qtyRaw;
       }
-    }
+      b.disabled = true;
+      try{
+        const res = await api(`/raffles/${id}/admin-take`, { method:'POST', body: JSON.stringify(body) });
+        alert(`Took ${res.order.ticketNumbers.length} ticket(s): ${res.order.ticketNumbers.join(', ')}`);
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-releaseticketsbtn]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.releaseticketsbtn;
+      const form = wrap.querySelector(`[data-releaseticketsform="${id}"]`);
+      const opening = form.style.display === 'none';
+      form.style.display = opening ? 'block' : 'none';
+      if (!opening) return;
+      const label = wrap.querySelector(`[data-release-current="${id}"]`);
+      label.textContent = 'Loading currently admin-taken numbers…';
+      try{
+        const res = await api(`/raffles/${id}/admin-taken`);
+        label.textContent = res.count
+          ? `${res.count} admin-taken: ${res.numbers.map(n=>'#'+n).join(', ')}`
+          : 'No admin-taken tickets on this raffle right now.';
+      }catch(e){ label.textContent = 'Could not load current admin-taken numbers.'; }
+    }));
+    wrap.querySelectorAll('[data-cancelreleaseticketsbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-releaseticketsform="${b.dataset.cancelreleaseticketsbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-releaseticketsconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.releaseticketsconfirm;
+      const numsRaw = wrap.querySelector(`[data-release-numbers="${id}"]`).value.trim();
+      const body = {};
+      const confirmMsg = numsRaw
+        ? `Release ticket(s) ${numsRaw} back to available? Anyone will be able to pick these numbers again.`
+        : 'Release ALL admin-taken tickets on this raffle back to available? Anyone will be able to pick these numbers again.';
+      if (!confirm(confirmMsg)) return;
+      if (numsRaw) body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      b.disabled = true;
+      try{
+        const res = await api(`/raffles/${id}/admin-release`, { method:'POST', body: JSON.stringify(body) });
+        alert(`Released ${res.released.length} ticket(s): ${res.released.join(', ')}`);
+        wrap.querySelector(`[data-release-numbers="${id}"]`).value = '';
+        wrap.querySelector(`[data-releaseticketsform="${id}"]`).style.display = 'none';
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-issueforbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      const id = b.dataset.issueforbtn;
+      const form = wrap.querySelector(`[data-issueforform="${id}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }));
+    wrap.querySelectorAll('[data-cancelissueforbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-issueforform="${b.dataset.cancelissueforbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-issueforconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.issueforconfirm;
+      const fullName = wrap.querySelector(`[data-issuefor-name="${id}"]`).value.trim();
+      const phone = wrap.querySelector(`[data-issuefor-phone="${id}"]`).value.trim();
+      const qtyRaw = wrap.querySelector(`[data-issuefor-qty="${id}"]`).value.trim();
+      const numsRaw = wrap.querySelector(`[data-issuefor-numbers="${id}"]`).value.trim();
+      const note = wrap.querySelector(`[data-issuefor-note="${id}"]`).value.trim();
+      const telegramUsername = wrap.querySelector(`[data-issuefor-username="${id}"]`).value.trim();
+      if (!fullName || !phone){ alert('Customer name and phone are required'); return; }
+      if (!qtyRaw && !numsRaw){ alert('Enter a quantity or specific numbers'); return; }
+      const body = { raffleId: id, fullName, phone, note: note || undefined, telegramUsername: telegramUsername || undefined };
+      if (numsRaw) {
+        body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      } else {
+        body.quantity = qtyRaw;
+      }
+      b.disabled = true;
+      try{
+        const res = await api('/orders/manual', { method:'POST', body: JSON.stringify(body) });
+        alert(`Approved ${res.order.ticketNumbers.length} ticket(s) for ${fullName}: ${res.order.ticketNumbers.join(', ')}`);
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-savebtn]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.savebtn;
+      const raffleNumber = wrap.querySelector(`[data-edit-rafflenumber="${id}"]`).value;
+      const title = wrap.querySelector(`[data-edit-title="${id}"]`).value.trim();
+      const subtitle = wrap.querySelector(`[data-edit-subtitle="${id}"]`).value.trim();
+      const price = wrap.querySelector(`[data-edit-price="${id}"]`).value;
+      const totalNumbers = wrap.querySelector(`[data-edit-totalnumbers="${id}"]`).value;
+      const badge = wrap.querySelector(`[data-edit-badge="${id}"]`).value;
+      const rating = wrap.querySelector(`[data-edit-rating="${id}"]`).value;
+      if (!raffleNumber || !title || !price || !totalNumbers){ alert('Raffle number, title, price, and total numbers are required'); return; }
+      b.disabled = true;
+      try{
+        await api(`/raffles/${id}`, { method:'PUT', body: JSON.stringify({ raffleNumber, title, subtitle, price, totalNumbers, badge, rating }) });
+        loadRaffles(); loadSummary();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
 
-    // No Supabase configured (e.g. local dev) - same local-disk behavior as
-    // before. On Render free tier this won't survive a redeploy.
-    const imageUrl = `/uploads/cars/${req.file.filename}`;
-    res.json({ imageUrl });
+    wrap.querySelectorAll('[data-end]').forEach(b=> b.addEventListener('click', async ()=>{
+      await api(`/raffles/${b.dataset.end}`, { method:'PUT', body: JSON.stringify({ status:'ended' }) }); loadRaffles();
+    }));
+    wrap.querySelectorAll('[data-activate]').forEach(b=> b.addEventListener('click', async ()=>{
+      await api(`/raffles/${b.dataset.activate}`, { method:'PUT', body: JSON.stringify({ status:'active' }) }); loadRaffles();
+    }));
+    wrap.querySelectorAll('[data-delete]').forEach(b=> b.addEventListener('click', async ()=>{
+      if (!confirm('Delete this raffle and all its data, including every order/ticket placed on it?')) return;
+      b.disabled = true;
+      try{
+        const res = await api(`/raffles/${b.dataset.delete}`, { method:'DELETE' });
+        if (res.removedOrders) alert(`Raffle deleted. ${res.removedOrders} order(s)/ticket(s) tied to it were also removed.`);
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-draw]').forEach(b=> b.addEventListener('click', async ()=>{
+      try{
+        const res = await api(`/raffles/${b.dataset.draw}/draw`, { method:'POST' });
+        alert(`Winner: ticket #${res.winner.number} — ${res.winner.fullName} (${res.winner.phone})`);
+        loadRaffles();
+      }catch(e){ alert(e.message); }
+    }));
+    wrap.querySelectorAll('[data-updatedate]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.updatedate;
+      const input = wrap.querySelector(`[data-drawinput="${id}"]`);
+      if (!input.value){ alert('Pick a date first'); return; }
+      const drawAt = new Date(input.value).toISOString();
+      b.disabled = true;
+      try{
+        await api(`/raffles/${id}`, { method:'PUT', body: JSON.stringify({ drawAt }) });
+        wrap.querySelector(`[data-drawlabel="${id}"]`).textContent = new Date(drawAt).toLocaleString();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-photobtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-photoinput="${b.dataset.photobtn}"]`).click();
+    }));
+    wrap.querySelectorAll('[data-photoinput]').forEach(inp=> inp.addEventListener('change', async ()=>{
+      if (!inp.files || !inp.files[0]) return;
+      const id = inp.dataset.photoinput;
+      const fd = new FormData();
+      fd.append('photo', inp.files[0]);
+      try{
+        const uploaded = await apiForm('/raffles/photo', fd);
+        await api(`/raffles/${id}`, { method:'PUT', body: JSON.stringify({ imageUrl: uploaded.imageUrl }) });
+        loadRaffles();
+      }catch(e){ alert(e.message); }
+      finally{ inp.value = ''; }
+    }));
+  }catch(e){ console.error(e); }
+}
+
+document.getElementById('newImageFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  const wrap = document.getElementById('newImagePreviewWrap');
+  if (!file){ wrap.style.display = 'none'; return; }
+  document.getElementById('newImagePreview').src = URL.createObjectURL(file);
+  wrap.style.display = 'block';
+});
+
+document.getElementById('createRaffleBtn').addEventListener('click', async ()=>{
+  const body = {
+    raffleNumber: document.getElementById('newRaffleNumber').value,
+    title: document.getElementById('newTitle').value.trim(),
+    subtitle: document.getElementById('newSubtitle').value.trim(),
+    price: document.getElementById('newPrice').value,
+    totalNumbers: document.getElementById('newTotalNumbers').value,
+    imageUrl: document.getElementById('newImageUrl').value.trim(),
+    drawAt: document.getElementById('newDrawAt').value ? new Date(document.getElementById('newDrawAt').value).toISOString() : undefined,
+    badge: document.getElementById('newBadge').value,
+    rating: document.getElementById('newRating').value
+  };
+  if (!body.raffleNumber || !body.title || !body.price || !body.totalNumbers){ alert('Raffle number, title, price, and total numbers are required'); return; }
+  const fileInput = document.getElementById('newImageFile');
+  try{
+    // Photo is entirely optional. If the admin picked a file, upload it and
+    // let it override anything typed into the URL field; otherwise the URL
+    // field (also optional) is used as-is, and if both are empty the raffle
+    // is just created with no photo.
+    if (fileInput.files && fileInput.files[0]){
+      const fd = new FormData();
+      fd.append('photo', fileInput.files[0]);
+      const uploaded = await apiForm('/raffles/photo', fd);
+      body.imageUrl = uploaded.imageUrl;
+    }
+    await api('/raffles', { method:'POST', body: JSON.stringify(body) });
+    ['newRaffleNumber','newTitle','newSubtitle','newPrice','newTotalNumbers','newImageUrl','newDrawAt'].forEach(id=> document.getElementById(id).value='');
+    fileInput.value = '';
+    document.getElementById('newImagePreviewWrap').style.display = 'none';
+    loadRaffles(); loadSummary();
+  }catch(e){ alert(e.message); }
+});
+
+// ===== Banks =====
+async function loadBanks(){
+  try{
+    const data = await api('/banks');
+    const wrap = document.getElementById('banksList');
+    if (!data.banks.length){ wrap.innerHTML = '<div class="empty-msg">No bank accounts yet</div>'; return; }
+    wrap.innerHTML = data.banks.map(b=> `
+      <div class="raffle-item">
+        <div><div style="font-weight:700;">${esc(b.name)}</div><div style="font-size:12px;color:var(--text-tertiary);">${esc(b.holder)} · ${esc(b.account)}</div></div>
+        <button class="btn-red" data-delbank="${esc(b.id)}">Remove</button>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('[data-delbank]').forEach(btn=> btn.addEventListener('click', async ()=>{
+      await api(`/banks/${btn.dataset.delbank}`, { method:'DELETE' }); loadBanks();
+    }));
+  }catch(e){ console.error(e); }
+}
+document.getElementById('addBankBtn').addEventListener('click', async ()=>{
+  const name = document.getElementById('newBankName').value.trim();
+  const holder = document.getElementById('newBankHolder').value.trim();
+  const account = document.getElementById('newBankAccount').value.trim();
+  if (!name || !account){ alert('Bank name and account number are required'); return; }
+  try{
+    await api('/banks', { method:'POST', body: JSON.stringify({ name, holder, account }) });
+    ['newBankName','newBankHolder','newBankAccount'].forEach(id=> document.getElementById(id).value='');
+    loadBanks();
+  }catch(e){ alert(e.message); }
+});
+
+// ===== Settings =====
+document.getElementById('changeUsernameBtn').addEventListener('click', async ()=>{
+  const currentPassword = document.getElementById('curPassForUsername').value;
+  const newUsername = document.getElementById('newUsername').value.trim();
+  try{
+    const res = await api('/change-username', { method:'POST', body: JSON.stringify({ currentPassword, newUsername }) });
+    alert('Username updated');
+    document.getElementById('curPassForUsername').value=''; document.getElementById('newUsername').value='';
+    document.getElementById('whoAmI').textContent = `Logged in as ${res.username}`;
+  }catch(e){ alert(e.message); }
+});
+
+document.getElementById('changePassBtn').addEventListener('click', async ()=>{
+  const currentPassword = document.getElementById('curPass').value;
+  const newPassword = document.getElementById('newPass').value;
+  try{
+    await api('/change-password', { method:'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+    alert('Password updated');
+    document.getElementById('curPass').value=''; document.getElementById('newPass').value='';
+  }catch(e){ alert(e.message); }
+});
+
+document.getElementById('changeEmailBtn').addEventListener('click', async ()=>{
+  const currentPassword = document.getElementById('curPassForEmail').value;
+  const email = document.getElementById('newEmail').value.trim();
+  try{
+    const res = await api('/account/email', { method:'POST', body: JSON.stringify({ currentPassword, email }) });
+    alert(res.email ? 'Recovery email saved' : 'Recovery email removed');
+    document.getElementById('curPassForEmail').value=''; document.getElementById('newEmail').value='';
+    document.getElementById('currentEmailLabel').textContent = res.email
+      ? `Currently: ${res.email}`
+      : 'Not set - you won\'t be able to use "Forgot password?" until you add one.';
+  }catch(e){ alert(e.message); }
+});
+
+document.getElementById('saveTelegramBtn').addEventListener('click', async ()=>{
+  const currentPassword = document.getElementById('curPassForTelegram').value;
+  const telegramUsername = document.getElementById('newTelegramUsername').value.trim();
+  try{
+    const res = await api('/account/telegram', { method:'POST', body: JSON.stringify({ currentPassword, telegramUsername }) });
+    alert(res.telegramUsername ? 'Telegram username saved - now message the bot, then click "Link Telegram"' : 'Telegram username removed');
+    document.getElementById('curPassForTelegram').value='';
+    document.getElementById('telegramStatusLabel').textContent = res.telegramUsername
+      ? (res.telegramLinked ? `Linked: @${res.telegramUsername}` : `@${res.telegramUsername} saved, but not linked yet - see below.`)
+      : 'Not set - you won\'t be notified when a new order needs approval.';
+  }catch(e){ alert(e.message); }
+});
+
+document.getElementById('linkTelegramBtn').addEventListener('click', async ()=>{
+  try{
+    const res = await api('/telegram/link-account', { method:'POST', body: JSON.stringify({}) });
+    if (res.telegramLinked){
+      alert('Telegram linked - you\'ll now get a message when a new order needs approval.');
+      checkAuth();
+    }
+  }catch(e){ alert(e.message); }
+});
+
+// ===== Forgot password (from the login screen, no session yet) =====
+document.getElementById('forgotPasswordLink').addEventListener('click', (e)=>{
+  e.preventDefault();
+  const wrap = document.getElementById('forgotWrap');
+  const showing = wrap.style.display !== 'none';
+  wrap.style.display = showing ? 'none' : 'block';
+  if (!showing) document.getElementById('forgotUsername').value = document.getElementById('loginUser').value.trim();
+});
+
+document.getElementById('forgotSubmitBtn').addEventListener('click', async ()=>{
+  const username = document.getElementById('forgotUsername').value.trim();
+  const errEl = document.getElementById('forgotErr');
+  const msgEl = document.getElementById('forgotMsg');
+  showErr(errEl, '');
+  msgEl.style.display = 'none';
+  if (!username){ showErr(errEl, 'Enter your username'); return; }
+  const btn = document.getElementById('forgotSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try{
+    const res = await api('/forgot-password', { method:'POST', body: JSON.stringify({ username }) });
+    msgEl.textContent = res.message;
+    msgEl.style.display = 'block';
+  }catch(e){
+    showErr(errEl, e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Send Reset Link';
+  }
+});
+
+// ===== Password visibility toggles =====
+document.querySelectorAll('.pw-toggle').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const input = document.getElementById(btn.dataset.for);
+    if (!input) return;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.classList.toggle('showing', !showing);
+    btn.title = showing ? 'Show password' : 'Hide password';
+    btn.setAttribute('aria-label', btn.title);
   });
 });
 
-router.post('/raffles', (req, res) => {
-  const { title, subtitle, imageUrl, price, totalNumbers, drawAt, badge, rating, raffleNumber } = req.body;
-  if (!title || !String(title).trim()) {
-    return res.status(400).json({ error: 'title is required' });
-  }
-  // The admin sets this explicitly (rather than it being auto-counted)
-  // because raffles can be deleted/re-ordered and the admin may want the
-  // displayed sequence to reflect something other than raw row count -
-  // e.g. skipping a cancelled raffle. Required so it's never silently
-  // missing from the customer-facing title.
-  if (raffleNumber === undefined || raffleNumber === null || raffleNumber === '' || !Number.isInteger(Number(raffleNumber)) || Number(raffleNumber) <= 0) {
-    return res.status(400).json({ error: 'raffleNumber must be a positive integer' });
-  }
-  // Same coercion/validation as PUT /raffles/:id - a truthy check alone
-  // (the previous `!price || !totalNumbers`) lets non-numeric strings like
-  // "abc" through, which Number() then turns into NaN and silently corrupts
-  // every downstream total (order totals, revenue, the number grid).
-  const priceNum = Number(price);
-  if (price === undefined || price === null || price === '' || !Number.isFinite(priceNum) || priceNum <= 0) {
-    return res.status(400).json({ error: 'price must be a positive number' });
-  }
-  const totalNumbersNum = Number(totalNumbers);
-  if (totalNumbers === undefined || totalNumbers === null || totalNumbers === '' || !Number.isInteger(totalNumbersNum) || totalNumbersNum <= 0) {
-    return res.status(400).json({ error: 'totalNumbers must be a positive integer' });
-  }
-  let ratingNum = 5.0;
-  if (rating !== undefined && rating !== null && rating !== '') {
-    ratingNum = Number(rating);
-    if (!Number.isFinite(ratingNum) || ratingNum < 0 || ratingNum > 5) {
-      return res.status(400).json({ error: 'rating must be between 0 and 5' });
-    }
-  }
-  const data = db.load();
-  const raffle = {
-    id: nanoid(8),
-    raffleNumber: Number(raffleNumber),
-    title, subtitle: subtitle || '', imageUrl: imageUrl || '',
-    price: priceNum, totalNumbers: totalNumbersNum,
-    rating: ratingNum,
-    status: 'active', badge: badge || 'none',
-    drawAt: drawAt || new Date(Date.now() + 9 * 24 * 60 * 60 * 1000).toISOString(),
-    takenNumbers: [], pending: {},
-    createdAt: new Date().toISOString()
-  };
-  data.raffles.push(raffle);
-  db.save(data);
-  res.status(201).json({ raffle });
-});
-
-router.put('/raffles/:id', (req, res) => {
-  const data = db.load();
-  const raffle = data.raffles.find(r => r.id === req.params.id);
-  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
-
-  // Numeric fields must actually be coerced/validated here, the same as on
-  // create - otherwise a client sending e.g. price as "" or a non-numeric
-  // string would silently corrupt raffle.price into NaN, which then breaks
-  // every total calculation downstream (order totals, revenue, etc).
-  if (req.body.price !== undefined) {
-    const price = Number(req.body.price);
-    if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'price must be a positive number' });
-    raffle.price = price;
-  }
-  if (req.body.totalNumbers !== undefined) {
-    const totalNumbers = Number(req.body.totalNumbers);
-    if (!Number.isInteger(totalNumbers) || totalNumbers <= 0) return res.status(400).json({ error: 'totalNumbers must be a positive integer' });
-    // Never let totalNumbers shrink below tickets already sold/reserved -
-    // that would silently strand existing buyers' numbers outside the
-    // valid range and break number-grid rendering.
-    const highestHeld = Math.max(0, ...raffle.takenNumbers, ...Object.keys(raffle.pending || {}).map(Number));
-    if (totalNumbers < highestHeld) {
-      return res.status(400).json({ error: `totalNumbers can't be less than the highest ticket already sold/reserved (${highestHeld})` });
-    }
-    raffle.totalNumbers = totalNumbers;
-  }
-  if (req.body.rating !== undefined) {
-    const rating = Number(req.body.rating);
-    if (!Number.isFinite(rating) || rating < 0 || rating > 5) return res.status(400).json({ error: 'rating must be between 0 and 5' });
-    raffle.rating = rating;
-  }
-  if (req.body.raffleNumber !== undefined) {
-    const raffleNumber = Number(req.body.raffleNumber);
-    if (!Number.isInteger(raffleNumber) || raffleNumber <= 0) return res.status(400).json({ error: 'raffleNumber must be a positive integer' });
-    raffle.raffleNumber = raffleNumber;
-  }
-  const passthroughFields = ['title', 'subtitle', 'imageUrl', 'drawAt', 'badge', 'status'];
-  for (const f of passthroughFields) {
-    if (req.body[f] !== undefined) raffle[f] = req.body[f];
-  }
-  db.save(data);
-  res.json({ raffle });
-});
-
-// ---- Admin takes a batch of tickets directly, no order/payment involved ----
-// For numbers the admin wants held back for themselves, giveaways, offline
-// cash sales, etc. Either give an exact `numbers` list, or a `quantity` and
-// let the system pick that many random still-available numbers - the same
-// randomAvailableNumbers() used for the public "auto-pick" flow, so there's
-// no bias in which numbers come out.
-// This creates a normal 'confirmed' order (total: 0, so it never inflates
-// revenue) so it plugs into the existing order lifecycle for free - it shows
-// up in the Orders tab, and can be released again with the existing
-// Unconfirm -> Reject flow if the admin changes their mind.
-router.post('/raffles/:id/admin-take', (req, res) => {
-  let data = db.load();
-  data = db.sweepExpired(data);
-  const raffle = data.raffles.find(r => r.id === req.params.id);
-  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
-
-  const { numbers, quantity, note } = req.body || {};
-  let selected;
-
-  if (Array.isArray(numbers) && numbers.length) {
-    const normalized = numbers.map(n => Number.parseInt(n, 10));
-    if (normalized.some(n => !Number.isInteger(n) || n < 1 || n > raffle.totalNumbers)) {
-      return res.status(400).json({ error: 'One or more numbers are invalid for this raffle' });
-    }
-    if (new Set(normalized).size !== normalized.length) {
-      return res.status(400).json({ error: 'Duplicate numbers in selection' });
-    }
-    const conflict = normalized.find(n => numberStatus(raffle, n) !== 'available');
-    if (conflict !== undefined) {
-      return res.status(409).json({ error: `Number ${conflict} is already taken or pending`, conflict });
-    }
-    selected = normalized;
-  } else {
-    const qty = Number.parseInt(quantity, 10);
-    if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'Provide either a positive integer quantity, or a numbers array' });
-    }
-    selected = randomAvailableNumbers(raffle, qty);
-    if (selected.length < qty) {
-      return res.status(409).json({ error: `Only ${selected.length} numbers are still available, can't take ${qty}` });
-    }
-  }
-
-  const order = {
-    id: nanoid(10),
-    raffleId: raffle.id,
-    ticketNumbers: selected,
-    quantity: selected.length,
-    unitPrice: raffle.price,
-    total: 0, // admin-taken, not a real sale - kept out of revenue on purpose
-    fullName: note ? `Admin: ${note}` : 'Admin Reserved',
-    phone: 'ADMIN',
-    customerId: null,
-    status: 'confirmed',
-    bankSelected: null,
-    receiptPath: null,
-    adminTaken: true,
-    createdAt: new Date().toISOString(),
-    confirmedAt: new Date().toISOString()
-  };
-
-  raffle.takenNumbers = raffle.takenNumbers || [];
-  for (const n of selected) {
-    if (!raffle.takenNumbers.includes(n)) raffle.takenNumbers.push(n);
-  }
-  data.orders.push(order);
-  db.save(data);
-  res.json({ order, raffle: publicRaffle(raffle) });
-});
-
-// ---- Issue a real ticket on behalf of a customer (admin-collected payment) ----
-//
-// For buyers who paid outside the app - cash, a phone call, a bank transfer
-// the admin confirmed manually - and never completed (or couldn't complete)
-// checkout themselves. Unlike admin-take above (which reserves numbers for
-// the *admin*, phone:'ADMIN', total:0, customerId:null so it never shows up
-// in anyone's "My Tickets"), this creates a real sale under the *customer's*
-// own phone number: it counts toward revenue, and - because it goes through
-// the same db.getOrCreateCustomer() every normal order uses - it links into
-// that phone's existing customerId. That's what makes it show up
-// automatically in the customer's "My Tickets": if they've linked that
-// phone with the Telegram bot, POST /telegram/prefill (routes/public.js)
-// will find this exact customerId and load it without them typing anything.
-router.post('/orders/manual', (req, res) => {
-  let data = db.load();
-  data = db.sweepExpired(data);
-
-  const { raffleId, numbers, quantity, fullName, phone, note, telegramUsername } = req.body || {};
-  const raffle = data.raffles.find(r => r.id === raffleId);
-  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
-
-  const cleanFullName = (fullName || '').trim();
-  const cleanPhone = (phone || '').trim();
-  if (!cleanFullName || !cleanPhone) {
-    return res.status(400).json({ error: 'fullName and phone are required' });
-  }
-  // Same protection as the public order-creation endpoint - an admin
-  // shouldn't be able to (even accidentally) hand a fresh ticket to a
-  // phone number that was specifically banned from placing orders.
-  if (db.isPhoneBanned(data, cleanPhone)) {
-    return res.status(403).json({ error: 'This phone number is banned from placing orders. Unban it first if this is intentional.' });
-  }
-
-  let selected;
-  if (Array.isArray(numbers) && numbers.length) {
-    const normalized = numbers.map(n => Number.parseInt(n, 10));
-    if (normalized.some(n => !Number.isInteger(n) || n < 1 || n > raffle.totalNumbers)) {
-      return res.status(400).json({ error: 'One or more numbers are invalid for this raffle' });
-    }
-    if (new Set(normalized).size !== normalized.length) {
-      return res.status(400).json({ error: 'Duplicate numbers in selection' });
-    }
-    const conflict = normalized.find(n => numberStatus(raffle, n) !== 'available');
-    if (conflict !== undefined) {
-      return res.status(409).json({ error: `Number ${conflict} is already taken or pending`, conflict });
-    }
-    selected = normalized;
-  } else {
-    const qty = Number.parseInt(quantity, 10);
-    if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'Provide either a positive integer quantity, or a numbers array' });
-    }
-    selected = randomAvailableNumbers(raffle, qty);
-    if (selected.length < qty) {
-      return res.status(409).json({ error: `Only ${selected.length} numbers are still available, can't take ${qty}` });
-    }
-  }
-
-  // Same customer id every time this phone orders (or gets issued a
-  // ticket) - this is the link that makes the ticket findable later by
-  // phone+customerId, and auto-loadable via the Telegram prefill flow.
-  const customer = db.getOrCreateCustomer(data, cleanPhone);
-
-  const order = {
-    id: nanoid(10),
-    raffleId: raffle.id,
-    ticketNumbers: selected,
-    quantity: selected.length,
-    unitPrice: raffle.price,
-    total: raffle.price * selected.length, // a real sale - counts toward revenue
-    fullName: cleanFullName,
-    phone: cleanPhone,
-    customerId: customer.id,
-    status: 'confirmed',
-    bankSelected: null,
-    receiptPath: null,
-    adminCreated: true,
-    createdByAdminId: req.session.adminId,
-    adminNote: note ? String(note).trim() : '',
-    telegramUsername: telegramUsername ? String(telegramUsername).trim().replace(/^@/, '') : null,
-    createdAt: new Date().toISOString(),
-    confirmedAt: new Date().toISOString()
-  };
-
-  raffle.takenNumbers = raffle.takenNumbers || [];
-  for (const n of selected) {
-    if (!raffle.takenNumbers.includes(n)) raffle.takenNumbers.push(n);
-  }
-  data.orders.push(order);
-  db.save(data);
-  res.json({ order, raffle: publicRaffle(raffle) });
-
-  // Fire-and-forget, same as the checkout approve route - a customer who
-  // hasn't linked Telegram (or a Telegram API hiccup) can't turn this into
-  // an error response for the admin. Worded the same as a normal checkout
-  // approval ("has been approved") since from the customer's side this
-  // *is* an approval - the admin just collected payment outside the app
-  // instead of clicking Approve on a pending order. notifyCustomer matches
-  // on phone first (normalized, so local vs. country-code formats both
-  // work); telegramUsername is only used as a fallback if that lookup
-  // finds nothing, e.g. the phone the admin typed doesn't match what's on
-  // file for this customer.
-  const ticketWord = order.ticketNumbers.length > 1 ? 'numbers' : 'number';
-  notifyCustomer(data, order,
-    `✅ Your order for "${raffle.title}" has been approved.\n\n` +
-    `Ticket ${ticketWord}: ${order.ticketNumbers.join(', ')}\n\n` +
-    `Good luck!`,
-    { username: telegramUsername }
-  );
-});
-
-router.delete('/raffles/:id', (req, res) => {
-  const data = db.load();
-  const idx = data.raffles.findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Raffle not found' });
-  data.raffles.splice(idx, 1);
-
-  // Cascade delete: an order for a raffle that no longer exists has nothing
-  // left to point back to - no car, no numbers, no draw - and previously it
-  // just lingered forever as an "Unknown" entry in the buyer's "My Tickets"
-  // list. The frontend's confirm dialog already tells the admin this
-  // deletes "all its data", so actually do that.
-  const orphanedOrders = data.orders.filter(o => o.raffleId === req.params.id);
-  data.orders = data.orders.filter(o => o.raffleId !== req.params.id);
-
-  const uploadsRoot = path.join(__dirname, '..', '..', 'uploads');
-  for (const order of orphanedOrders) {
-    if (!order.receiptPath) continue;
-    const filePath = path.join(uploadsRoot, order.receiptPath.replace(/^\/uploads\//, ''));
-    // Best-effort cleanup - a missing/already-gone file shouldn't block the
-    // raffle deletion itself.
-    fs.unlink(filePath, () => {});
-  }
-
-  db.save(data);
-  res.json({ ok: true, removedOrders: orphanedOrders.length });
-});
-
-// ---- Orders queue + approval ----
-router.get('/orders', (req, res) => {
-  let data = db.load();
-  data = db.sweepExpired(data);
-  const status = req.query.status;
-  let orders = data.orders.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  if (status) orders = orders.filter(o => o.status === status);
-  orders = orders.map(o => {
-    const raffle = data.raffles.find(r => r.id === o.raffleId);
-    return { ...o, raffleTitle: raffle ? raffle.title : 'Unknown', raffleStatus: raffle ? raffle.status : null };
-  });
-  res.json({ orders });
-});
-
-router.post('/orders/:id/approve', (req, res) => {
-  let data = db.load();
-  data = db.sweepExpired(data);
-  const order = data.orders.find(o => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  if (order.status !== 'pending') return res.status(400).json({ error: `Cannot approve order in status ${order.status}` });
-
-  const raffle = data.raffles.find(r => r.id === order.raffleId);
-  if (raffle) {
-    for (const n of order.ticketNumbers) {
-      delete raffle.pending[String(n)];
-      if (!raffle.takenNumbers.includes(n)) raffle.takenNumbers.push(n);
-    }
-  }
-  order.status = 'confirmed';
-  order.confirmedAt = new Date().toISOString();
-  db.save(data);
-  res.json({ order });
-
-  // Fire-and-forget: never awaited, and notifyCustomer() itself swallows
-  // every failure, so a customer who never linked Telegram (or a Telegram
-  // API hiccup) can't turn a successful approval into an error response.
-  // See server/telegram.js.
-  const ticketWord = order.ticketNumbers.length > 1 ? 'numbers' : 'number';
-  notifyCustomer(data, order,
-    `Your order for "${raffle ? raffle.title : 'your raffle'}" has been approved.\n\n` +
-    `Ticket ${ticketWord}: ${order.ticketNumbers.join(', ')}\n\n` +
-    `Good luck!`
-  );
-});
-
-router.post('/orders/:id/reject', (req, res) => {
-  let data = db.load();
-  data = db.sweepExpired(data);
-  const order = data.orders.find(o => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  if (!['pending', 'awaiting_payment'].includes(order.status)) {
-    return res.status(400).json({ error: `Cannot reject order in status ${order.status}` });
-  }
-  const raffle = data.raffles.find(r => r.id === order.raffleId);
-  if (raffle) {
-    for (const n of order.ticketNumbers) delete raffle.pending[String(n)];
-  }
-  order.status = 'rejected';
-  order.rejectedReason = req.body.reason || null;
-  order.rejectedAt = new Date().toISOString();
-  db.save(data);
-  res.json({ order });
-
-  // See the approve handler above for why this is unawaited and unguarded.
-  const reasonLine = order.rejectedReason ? `\n\nReason: ${order.rejectedReason}` : '';
-  notifyCustomer(data, order,
-    `Your order for "${raffle ? raffle.title : 'your raffle'}" was not approved.${reasonLine}\n\n` +
-    `If you think this is a mistake, please get in touch with us.`
-  );
-});
-
-// ---- Undo a mistaken approval ----
-// approve is meant to be a considered, final-ish action (it's what marks
-// numbers as actually sold and counts toward revenue), but a misclick is a
-// misclick - without this, there was no way back from an accidental
-// Approve short of hand-editing Supabase's stored JSON directly. This puts
-// the order back where reject already knows how to send it from: pending,
-// with its numbers held (not released to the public pool, since the
-// order/receipt are still real and still need a decision) rather than
-// fully open for someone else to grab.
-router.post('/orders/:id/unconfirm', (req, res) => {
-  let data = db.load();
-  data = db.sweepExpired(data);
-  const order = data.orders.find(o => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  if (order.status !== 'confirmed') {
-    return res.status(400).json({ error: `Cannot unconfirm order in status ${order.status}` });
-  }
-  const raffle = data.raffles.find(r => r.id === order.raffleId);
-  if (raffle) {
-    raffle.pending = raffle.pending || {};
-    for (const n of order.ticketNumbers) {
-      raffle.takenNumbers = raffle.takenNumbers.filter(t => t !== n);
-      raffle.pending[String(n)] = { orderId: order.id, reservedUntil: order.reservedUntil || null };
-    }
-  }
-  order.status = 'pending';
-  delete order.confirmedAt;
-  order.unconfirmedAt = new Date().toISOString();
-  db.save(data);
-  res.json({ order });
-});
-
-// ---- Release admin-taken tickets back to available ----
-// admin-take (above) marks numbers taken with no real order/payment behind
-// them, so releasing them shouldn't go through the real Unconfirm -> Reject
-// two-step meant for actual buyers - one click, straight back to available.
-// Only works on batches created via admin-take (order.adminTaken), and only
-// while they're still 'confirmed' (that's the only state where the numbers
-// are actually held in raffle.takenNumbers). Pass `numbers` to release part
-// of a batch; omit it to release the whole thing.
-router.post('/orders/:id/admin-release', (req, res) => {
-  const data = db.load();
-  const order = data.orders.find(o => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  if (!order.adminTaken) {
-    return res.status(400).json({ error: 'Only admin-taken batches can be released this way - use Unconfirm/Reject for real orders' });
-  }
-  if (order.status !== 'confirmed') {
-    return res.status(400).json({ error: `Cannot release a batch in status ${order.status}` });
-  }
-
-  const raffle = data.raffles.find(r => r.id === order.raffleId);
-  const { numbers } = req.body || {};
-  let toRelease = order.ticketNumbers;
-  if (Array.isArray(numbers) && numbers.length) {
-    const normalized = numbers.map(n => Number.parseInt(n, 10));
-    const invalid = normalized.find(n => !order.ticketNumbers.includes(n));
-    if (invalid !== undefined) {
-      return res.status(400).json({ error: `Number ${invalid} isn't part of this batch` });
-    }
-    toRelease = normalized;
-  }
-
-  if (raffle) {
-    raffle.takenNumbers = raffle.takenNumbers.filter(n => !toRelease.includes(n));
-  }
-  const remaining = order.ticketNumbers.filter(n => !toRelease.includes(n));
-  if (remaining.length) {
-    // Partial release - batch is still 'confirmed', just smaller now.
-    order.ticketNumbers = remaining;
-    order.quantity = remaining.length;
-  } else {
-    order.status = 'released';
-    order.releasedAt = new Date().toISOString();
-  }
-  db.save(data);
-  res.json({ order, released: toRelease, raffle: raffle ? publicRaffle(raffle) : null });
-});
-
-// ---- Delete an order record ----
-// Deliberately restrictive about *when* this is allowed, because unlike
-// reject/unconfirm this can't be undone - there's no db.json history to
-// recover a deleted row from. Allowed only when the order can't represent
-// a live, reversible decision anymore:
-//   - already rejected/expired: no money or held number attached, so
-//     deleting it can't desync anything - it was already functionally gone.
-//   - its raffle has ended: even a 'confirmed' order here is done growing -
-//     the raffle it belongs to is over, nothing will re-sell that number,
-//     and you (the admin) are the one deciding you no longer need that
-//     record kept around. Ended-raffle orders are excluded from this
-//     safety net on purpose, at the admin's request, to allow cleaning up
-//     old raffles entirely - just be aware this also erases your own
-//     revenue/sales history for that raffle if you delete a confirmed one.
-router.delete('/orders/:id', (req, res) => {
-  const data = db.load();
-  const order = data.orders.find(o => o.id === req.params.id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-
-  const raffle = data.raffles.find(r => r.id === order.raffleId);
-  const raffleEnded = raffle ? raffle.status === 'ended' : false;
-  const orderInactive = ['rejected', 'expired', 'released'].includes(order.status);
-  if (!orderInactive && !raffleEnded) {
-    return res.status(400).json({
-      error: `Cannot delete an order in status "${order.status}" unless its raffle has ended. Reject or unconfirm it first.`
-    });
-  }
-
-  if (raffle && raffle.pending) {
-    for (const n of order.ticketNumbers) {
-      const p = raffle.pending[String(n)];
-      if (p && p.orderId === order.id) delete raffle.pending[String(n)];
-    }
-  }
-  data.orders = data.orders.filter(o => o.id !== order.id);
-  db.save(data);
-  res.json({ ok: true });
-});
-
-// ---- Banks ----
-router.get('/banks', (req, res) => {
-  const data = db.load();
-  res.json({ banks: data.banks });
-});
-
-router.post('/banks', (req, res) => {
-  const { name, holder, account } = req.body;
-  if (!name || !account) return res.status(400).json({ error: 'name and account are required' });
-  const data = db.load();
-  const bank = { id: nanoid(6), name, holder: holder || '', account };
-  data.banks.push(bank);
-  db.save(data);
-  res.status(201).json({ bank });
-});
-
-router.delete('/banks/:id', (req, res) => {
-  const data = db.load();
-  const idx = data.banks.findIndex(b => b.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Bank not found' });
-  data.banks.splice(idx, 1);
-  db.save(data);
-  res.json({ ok: true });
-});
-
-// ---- Winner draw (pick random confirmed ticket) ----
-router.post('/raffles/:id/draw', (req, res) => {
-  const data = db.load();
-  const raffle = data.raffles.find(r => r.id === req.params.id);
-  if (!raffle) return res.status(404).json({ error: 'Raffle not found' });
-  const confirmedOrders = data.orders.filter(o => o.raffleId === raffle.id && o.status === 'confirmed');
-  const pool = [];
-  confirmedOrders.forEach(o => o.ticketNumbers.forEach(n => pool.push({ number: n, order: o })));
-  if (pool.length === 0) return res.status(400).json({ error: 'No confirmed tickets to draw from' });
-  // crypto.randomInt, not Math.random() - this is the actual "who wins the
-  // car" moment, so it should be a CSPRNG rather than a non-cryptographic
-  // PRNG that (in principle) someone could try to argue was predictable.
-  const winner = pool[randomInt(0, pool.length)];
-  raffle.winner = { number: winner.number, orderId: winner.order.id, fullName: winner.order.fullName, phone: winner.order.phone, drawnAt: new Date().toISOString() };
-  raffle.status = 'ended';
-
-  // Auto-draws feed into the same Announcements list a manually-typed
-  // winner card would (see POST /announcements above) - this is the ONLY
-  // on-site place a winner is shown now; there's no separate "Latest
-  // Winners" list anymore. Uses maskWinnerName/no-phone by default since
-  // this fires without any admin review, unlike a manual winner
-  // announcement where the admin explicitly typed (and can choose to
-  // publish) real contact details.
-  db.createAnnouncement(data, {
-    title: `Winner drawn: ${raffle.title}`,
-    type: 'winner',
-    winner: {
-      name: maskWinnerName(winner.order.fullName),
-      phone: '',
-      lottery: raffle.title,
-      ticket: String(winner.number),
-      prize: raffle.subtitle || ''
-    }
-  });
-
-  db.save(data);
-  res.json({ winner: raffle.winner });
-
-  // See the approve handler above for why this is unawaited and unguarded.
-  notifyCustomer(data, winner.order,
-    `🏆 Congratulations! You won the raffle!\n\n` +
-    `Lottery: ${raffle.title}\n` +
-    `Winning ticket: #${winner.number}\n` +
-    (raffle.subtitle ? `Prize: ${raffle.subtitle}\n` : '') +
-    `Phone on file: ${winner.order.phone}\n\n` +
-    `Our team will be in touch with next steps.`
-  );
-});
-
-module.exports = router;
+checkAuth();
