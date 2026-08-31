@@ -790,7 +790,7 @@ router.post('/raffles/:id/admin-release', (req, res) => {
     return res.status(400).json({ error: 'No admin-taken tickets to release for this raffle' });
   }
 
-  const { numbers } = req.body || {};
+  const { numbers, count } = req.body || {};
   let targetNumbers = null; // null = release everything admin-taken on this raffle
   if (Array.isArray(numbers) && numbers.length) {
     const normalized = numbers.map(n => Number.parseInt(n, 10));
@@ -813,6 +813,18 @@ router.post('/raffles/:id/admin-release', (req, res) => {
       return res.status(400).json({ error: `Can't release: ${parts.join('; ')}.` });
     }
     targetNumbers = new Set(normalized);
+  } else if (count !== undefined && count !== null && count !== '') {
+    // Let the admin ask for "release 100 of them" without typing out every
+    // number by hand - picks the lowest N admin-taken numbers automatically.
+    const n = Number.parseInt(count, 10);
+    if (!Number.isInteger(n) || n <= 0) {
+      return res.status(400).json({ error: 'Amount to release must be a positive whole number' });
+    }
+    const allAdminTaken = adminOrders.flatMap(o => o.ticketNumbers).sort((a, b) => a - b);
+    if (n > allAdminTaken.length) {
+      return res.status(400).json({ error: `Only ${allAdminTaken.length} admin-taken ticket(s) available - can't release ${n}` });
+    }
+    targetNumbers = new Set(allAdminTaken.slice(0, n));
   }
 
   const released = [];
