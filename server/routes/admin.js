@@ -798,9 +798,19 @@ router.post('/raffles/:id/admin-release', (req, res) => {
       return res.status(400).json({ error: 'One or more numbers are invalid' });
     }
     const allAdminTaken = new Set(adminOrders.flatMap(o => o.ticketNumbers));
-    const invalid = normalized.find(n => !allAdminTaken.has(n));
-    if (invalid !== undefined) {
-      return res.status(400).json({ error: `Number ${invalid} isn't currently admin-taken on this raffle` });
+    // A number can be invalid for two different reasons, and the admin needs
+    // to know which: it's genuinely sold to a real customer (taken, but not
+    // via admin-take - this route deliberately refuses to touch those, since
+    // releasing a real sale needs Unconfirm -> Reject, not this one-click
+    // path), or it's just not taken/held by anyone right now. Report each
+    // number under the right reason instead of a single generic message.
+    const soldToCustomer = normalized.filter(n => raffle.takenNumbers.includes(n) && !allAdminTaken.has(n));
+    const notTaken = normalized.filter(n => !raffle.takenNumbers.includes(n) && !allAdminTaken.has(n));
+    if (soldToCustomer.length || notTaken.length) {
+      const parts = [];
+      if (soldToCustomer.length) parts.push(`ticket(s) ${soldToCustomer.map(n => '#' + n).join(', ')} are sold to a customer and can't be released this way`);
+      if (notTaken.length) parts.push(`ticket(s) ${notTaken.map(n => '#' + n).join(', ')} aren't currently admin-taken on this raffle`);
+      return res.status(400).json({ error: `Can't release: ${parts.join('; ')}.` });
     }
     targetNumbers = new Set(normalized);
   }
