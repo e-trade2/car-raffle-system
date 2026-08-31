@@ -380,6 +380,7 @@ async function loadRaffles(){
           <button class="btn-outline" data-photobtn="${r.id}">${r.imageUrl ? 'Change Photo' : 'Add Photo'}</button>
           <button class="btn-outline" data-editbtn="${r.id}">Edit</button>
           <button class="btn-outline" data-taketicketsbtn="${r.id}">Take Tickets</button>
+          <button class="btn-outline" data-releaseticketsbtn="${r.id}">Release Tickets</button>
           <button class="btn-outline" data-issueforbtn="${r.id}">Approve Ticket</button>
           ${r.status==='active' ? `<button class="btn-outline" data-end="${r.id}">End</button>` : `<button class="btn-outline" data-activate="${r.id}">Activate</button>`}
           <button class="btn-green" data-draw="${r.id}">Draw Winner</button>
@@ -395,6 +396,15 @@ async function loadRaffles(){
           <div class="row-actions">
             <button class="btn-gold" style="max-width:160px;" data-taketicketsconfirm="${r.id}">Take Tickets</button>
             <button class="btn-outline" data-canceltaketicketsbtn="${r.id}">Cancel</button>
+          </div>
+        </div>
+        <div class="raffle-edit-form" data-releaseticketsform="${r.id}" style="display:none;">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Releases tickets taken directly by the admin (via Take Tickets above) back to available. This does not touch real customer orders - use Unconfirm on the Orders tab for those.</p>
+          <div style="font-size:12px;color:var(--text-tertiary);margin:0 0 8px;" data-release-current="${r.id}">Loading currently admin-taken numbers…</div>
+          <div><label>Specific numbers to release (comma separated) - leave blank to release all of them</label><input type="text" placeholder="e.g. 5, 12, 40" data-release-numbers="${r.id}"></div>
+          <div class="row-actions">
+            <button class="btn-red" data-releaseticketsconfirm="${r.id}">Release Tickets</button>
+            <button class="btn-outline" data-cancelreleaseticketsbtn="${r.id}">Cancel</button>
           </div>
         </div>
         <div class="raffle-edit-form" data-issueforform="${r.id}" style="display:none;">
@@ -470,6 +480,43 @@ async function loadRaffles(){
       try{
         const res = await api(`/raffles/${id}/admin-take`, { method:'POST', body: JSON.stringify(body) });
         alert(`Took ${res.order.ticketNumbers.length} ticket(s): ${res.order.ticketNumbers.join(', ')}`);
+        loadRaffles(); loadSummary(); loadOrders();
+      }catch(e){ alert(e.message); }
+      finally{ b.disabled = false; }
+    }));
+    wrap.querySelectorAll('[data-releaseticketsbtn]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.releaseticketsbtn;
+      const form = wrap.querySelector(`[data-releaseticketsform="${id}"]`);
+      const opening = form.style.display === 'none';
+      form.style.display = opening ? 'block' : 'none';
+      if (!opening) return;
+      const label = wrap.querySelector(`[data-release-current="${id}"]`);
+      label.textContent = 'Loading currently admin-taken numbers…';
+      try{
+        const res = await api(`/raffles/${id}/admin-taken`);
+        label.textContent = res.count
+          ? `${res.count} admin-taken: ${res.numbers.map(n=>'#'+n).join(', ')}`
+          : 'No admin-taken tickets on this raffle right now.';
+      }catch(e){ label.textContent = 'Could not load current admin-taken numbers.'; }
+    }));
+    wrap.querySelectorAll('[data-cancelreleaseticketsbtn]').forEach(b=> b.addEventListener('click', ()=>{
+      wrap.querySelector(`[data-releaseticketsform="${b.dataset.cancelreleaseticketsbtn}"]`).style.display = 'none';
+    }));
+    wrap.querySelectorAll('[data-releaseticketsconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
+      const id = b.dataset.releaseticketsconfirm;
+      const numsRaw = wrap.querySelector(`[data-release-numbers="${id}"]`).value.trim();
+      const body = {};
+      const confirmMsg = numsRaw
+        ? `Release ticket(s) ${numsRaw} back to available? Anyone will be able to pick these numbers again.`
+        : 'Release ALL admin-taken tickets on this raffle back to available? Anyone will be able to pick these numbers again.';
+      if (!confirm(confirmMsg)) return;
+      if (numsRaw) body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      b.disabled = true;
+      try{
+        const res = await api(`/raffles/${id}/admin-release`, { method:'POST', body: JSON.stringify(body) });
+        alert(`Released ${res.released.length} ticket(s): ${res.released.join(', ')}`);
+        wrap.querySelector(`[data-release-numbers="${id}"]`).value = '';
+        wrap.querySelector(`[data-releaseticketsform="${id}"]`).style.display = 'none';
         loadRaffles(); loadSummary(); loadOrders();
       }catch(e){ alert(e.message); }
       finally{ b.disabled = false; }
