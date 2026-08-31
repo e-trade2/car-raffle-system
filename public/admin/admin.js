@@ -402,6 +402,7 @@ async function loadRaffles(){
           <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">Releases tickets taken directly by the admin (via Take Tickets above) back to available. This does not touch real customer orders - use Unconfirm on the Orders tab for those.</p>
           <div style="font-size:12px;color:var(--text-tertiary);margin:0 0 8px;" data-release-current="${r.id}">Loading currently admin-taken numbers…</div>
           <div><label>Specific numbers to release (comma separated) - leave blank to release all of them</label><input type="text" placeholder="e.g. 5, 12, 40" data-release-numbers="${r.id}"></div>
+          <div><label>...or just an amount to release automatically (picks the lowest-numbered admin-taken tickets)</label><input type="number" min="1" step="1" placeholder="e.g. 100" data-release-count="${r.id}"></div>
           <div class="row-actions">
             <button class="btn-red" data-releaseticketsconfirm="${r.id}">Release Tickets</button>
             <button class="btn-outline" data-cancelreleaseticketsbtn="${r.id}">Cancel</button>
@@ -505,17 +506,26 @@ async function loadRaffles(){
     wrap.querySelectorAll('[data-releaseticketsconfirm]').forEach(b=> b.addEventListener('click', async ()=>{
       const id = b.dataset.releaseticketsconfirm;
       const numsRaw = wrap.querySelector(`[data-release-numbers="${id}"]`).value.trim();
+      const countRaw = wrap.querySelector(`[data-release-count="${id}"]`).value.trim();
+      if (numsRaw && countRaw) { alert('Fill in either specific numbers or an amount, not both.'); return; }
       const body = {};
-      const confirmMsg = numsRaw
-        ? `Release ticket(s) ${numsRaw} back to available? Anyone will be able to pick these numbers again.`
-        : 'Release ALL admin-taken tickets on this raffle back to available? Anyone will be able to pick these numbers again.';
+      let confirmMsg;
+      if (numsRaw) {
+        confirmMsg = `Release ticket(s) ${numsRaw} back to available? Anyone will be able to pick these numbers again.`;
+        body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
+      } else if (countRaw) {
+        confirmMsg = `Release ${countRaw} admin-taken ticket(s) (lowest numbers first) back to available? Anyone will be able to pick these numbers again.`;
+        body.count = countRaw;
+      } else {
+        confirmMsg = 'Release ALL admin-taken tickets on this raffle back to available? Anyone will be able to pick these numbers again.';
+      }
       if (!confirm(confirmMsg)) return;
-      if (numsRaw) body.numbers = numsRaw.split(',').map(s=> s.trim()).filter(Boolean);
       b.disabled = true;
       try{
         const res = await api(`/raffles/${id}/admin-release`, { method:'POST', body: JSON.stringify(body) });
         alert(`Released ${res.released.length} ticket(s): ${res.released.join(', ')}`);
         wrap.querySelector(`[data-release-numbers="${id}"]`).value = '';
+        wrap.querySelector(`[data-release-count="${id}"]`).value = '';
         wrap.querySelector(`[data-releaseticketsform="${id}"]`).style.display = 'none';
         loadRaffles(); loadSummary(); loadOrders();
       }catch(e){ alert(e.message); }
