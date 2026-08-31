@@ -495,7 +495,7 @@ async function loadRaffles(){
       try{
         const res = await api(`/raffles/${id}/admin-taken`);
         label.textContent = res.count
-          ? `${res.count} admin-taken: ${res.numbers.map(n=>'#'+n).join(', ')}`
+          ? `${res.count} admin-taken ticket(s) right now. Type specific numbers below, or leave blank to release all.`
           : 'No admin-taken tickets on this raffle right now.';
       }catch(e){ label.textContent = 'Could not load current admin-taken numbers.'; }
     }));
