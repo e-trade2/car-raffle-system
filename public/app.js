@@ -140,6 +140,7 @@ const TEXT = {
     ongoingRafflesLbl:"Ongoing raffles", availableLbl:"available",
     newBadgeLbl:"NEW",
     copyLbl:"Copy", copiedLbl:"Copied!",
+    newRaffleLbl:"New Raffle", viewRaffleLbl:"View Raffle",
   },
   am: {
     backLabel:"ተመለስ", cdLabel:"የቀረው ጊዜ",
@@ -182,6 +183,7 @@ const TEXT = {
     ongoingRafflesLbl:"በመካሄድ ላይ ያሉ ዕጣዎች", availableLbl:"ያሉ",
     newBadgeLbl:"አዲስ",
     copyLbl:"ቅዳ", copiedLbl:"ተቀድቷል!",
+    newRaffleLbl:"አዲስ ዕጣ", viewRaffleLbl:"ዕጣውን ይመልከቱ",
   },
   om: {
     backLabel:"Duubatti", cdLabel:"GUYYA XUMURRA",
@@ -224,6 +226,7 @@ const TEXT = {
     ongoingRafflesLbl:"Lotoriwwan Jiran", availableLbl:"jira",
     newBadgeLbl:"HAARAA",
     copyLbl:"Kopii", copiedLbl:"Kopiidhameera!",
+    newRaffleLbl:"Lootarii Haaraa", viewRaffleLbl:"Lootarii Ilaali",
   }
 };
 const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
@@ -312,7 +315,7 @@ function updateNotifDot(){
   const hasUnseenAnn = (announcements || []).some(a => !seenAnn.includes(a.id));
   document.getElementById('notifDot').style.display = hasUnseenAnn ? 'block' : 'none';
 }
-const ANN_ICON = { winner: '🏆', warning: '⚠️', update: '📢' };
+const ANN_ICON = { winner: '🏆', warning: '⚠️', update: '📢', raffle: '🚗' };
 function renderAnnouncementsSection(){
   const wrap = document.getElementById('notifAnnouncementsList');
   if (!wrap) return;
@@ -320,7 +323,8 @@ function renderAnnouncementsSection(){
     wrap.innerHTML = `<div class="notif-empty-box">${t('noAnnouncementsLbl')}</div>`;
     return;
   }
-  wrap.innerHTML = announcements.slice(0, 20).map(a => {
+  const list = announcements.slice(0, 20);
+  wrap.innerHTML = list.map(a => {
     if (a.type === 'winner' && a.winner){
       return `
       <div class="winner-card">
@@ -346,6 +350,27 @@ function renderAnnouncementsSection(){
         <div class="winner-card-time">🕐 ${new Date(a.createdAt).toLocaleString()}</div>
       </div>`;
     }
+    if (a.type === 'raffle' && a.raffle){
+      const r = a.raffle;
+      return `
+      <div class="raffle-ann-card" data-open-raffle="${esc(r.id)}">
+        <div class="raffle-ann-media">
+          ${r.imageUrl ? `<img src="${esc(r.imageUrl)}" alt="${esc(r.title)}">` : `<div class="raffle-ann-media-fallback">🚗</div>`}
+        </div>
+        <div class="raffle-ann-body">
+          <div class="raffle-ann-tag">${t('newBadgeLbl')} · ${t('newRaffleLbl')}</div>
+          <div class="raffle-ann-title">${esc(r.title)}</div>
+          ${r.subtitle ? `<div class="raffle-ann-sub">${esc(r.subtitle)}</div>` : ''}
+          <div class="raffle-ann-meta">
+            <span>${t('priceLbl')}: <b>${Number(r.price).toLocaleString()} Birr</b></span>
+          </div>
+          <div class="raffle-ann-footer">
+            <span class="notif-card-sub">🕐 ${new Date(a.createdAt).toLocaleString()}</span>
+            <button type="button" class="raffle-ann-btn" data-open-raffle="${esc(r.id)}">${t('viewRaffleLbl')}</button>
+          </div>
+        </div>
+      </div>`;
+    }
     return `
     <div class="notif-card" style="align-items:flex-start;">
       <div class="notif-icon notif-${a.type || 'update'}-icon">${ANN_ICON[a.type] || '📢'}</div>
@@ -356,6 +381,16 @@ function renderAnnouncementsSection(){
       </div>
     </div>`;
   }).join('');
+  wrap.querySelectorAll('[data-open-raffle]').forEach(el => {
+    el.addEventListener('click', () => openRaffleFromNotif(el.dataset.openRaffle));
+  });
+}
+// Opens a raffle straight from its "new raffle" notification card: closes
+// the notif modal first so the buyer lands on the detail view rather than
+// having it hidden behind the still-open modal backdrop.
+function openRaffleFromNotif(raffleId){
+  document.getElementById('notifModalBackdrop').classList.remove('show');
+  openDetail(raffleId);
 }
 function renderTicketsSection(orders){
   const wrap = document.getElementById('notifTicketsList');
