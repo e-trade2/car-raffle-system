@@ -213,6 +213,20 @@
   .winner-card-field-value.green{ color:var(--accent-green,#2ec478); }
   .winner-card-time{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-tertiary); margin-top:10px; }
 
+  .raffle-ann-card{ display:flex; gap:12px; background:linear-gradient(180deg,rgba(34,197,94,0.08),rgba(34,197,94,0.02)); border:1px solid rgba(34,197,94,0.30); border-radius:16px; padding:12px; margin-bottom:12px; cursor:pointer; }
+  .raffle-ann-card:last-child{ margin-bottom:0; }
+  .raffle-ann-media{ width:76px; height:76px; border-radius:12px; overflow:hidden; flex:none; background:#1c2a23; display:flex; align-items:center; justify-content:center; }
+  .raffle-ann-media img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .raffle-ann-media-fallback{ font-size:26px; }
+  .raffle-ann-body{ flex:1; min-width:0; }
+  .raffle-ann-tag{ font-size:10.5px; font-weight:700; letter-spacing:.03em; color:var(--accent-green); text-transform:uppercase; }
+  .raffle-ann-title{ font-family:var(--font-display); font-weight:700; font-size:15px; color:var(--text-primary); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .raffle-ann-sub{ font-size:12px; color:var(--text-secondary); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .raffle-ann-meta{ font-size:12px; color:var(--text-tertiary); margin-top:6px; }
+  .raffle-ann-meta b{ color:var(--accent-gold); }
+  .raffle-ann-footer{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; }
+  .raffle-ann-btn{ background:var(--accent-green); color:#08210f; border:none; border-radius:999px; padding:6px 14px; font-weight:700; font-size:11.5px; white-space:nowrap; cursor:pointer; }
+
   .steps{ display:flex; gap:6px; padding:0 18px 14px; }
   .step-bar{ flex:1; height:6px; border-radius:999px; background:var(--bg-well); overflow:hidden; }
   .step-bar.done .fill, .step-bar.active .fill{ display:block; height:100%; background:var(--accent-gold); }
