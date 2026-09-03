@@ -165,6 +165,11 @@
         <div><label>Badge</label><select id="newBadge"><option value="none">None</option><option value="new">New</option><option value="hot">Hot / Featured</option></select></div>
         <div><label>Rating</label><input type="number" step="0.1" max="5" min="0" id="newRating" placeholder="5.0" value="5.0"></div>
       </div>
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:0 0 10px;">A "New Raffle" card is posted automatically to every visitor's inbox (bell icon) as soon as this raffle is created.</p>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13px;margin-bottom:12px;">
+        <input type="checkbox" id="newRaffleNotifyTelegram" style="width:auto;" checked>
+        Also send as a Telegram DM to everyone who has linked their phone
+      </label>
       <button class="btn-gold" id="createRaffleBtn" style="max-width:220px;">Create Raffle</button>
     </div>
     <div class="card">
