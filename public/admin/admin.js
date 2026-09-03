@@ -651,7 +651,8 @@ document.getElementById('createRaffleBtn').addEventListener('click', async ()=>{
     imageUrl: document.getElementById('newImageUrl').value.trim(),
     drawAt: document.getElementById('newDrawAt').value ? new Date(document.getElementById('newDrawAt').value).toISOString() : undefined,
     badge: document.getElementById('newBadge').value,
-    rating: document.getElementById('newRating').value
+    rating: document.getElementById('newRating').value,
+    notifyTelegram: document.getElementById('newRaffleNotifyTelegram').checked
   };
   if (!body.raffleNumber || !body.title || !body.price || !body.totalNumbers){ alert('Raffle number, title, price, and total numbers are required'); return; }
   const fileInput = document.getElementById('newImageFile');
