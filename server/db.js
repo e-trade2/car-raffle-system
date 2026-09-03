@@ -268,15 +268,18 @@ function isPhoneBanned(data, phone) {
 // use). 'winner' announcements carry extra structured fields (name, phone,
 // lottery, ticket, prize) so the admin can hand-type a rich winner card -
 // same visual format as the automatic one from POST /raffles/:id/draw -
-// without that card being tied to an actual raffle draw. Those fields are
-// simply ignored/omitted for 'update' and 'warning' types.
-function createAnnouncement(data, { title, message, type, winner }) {
+// without that card being tied to an actual raffle draw. 'raffle'
+// announcements carry a snapshot of the new raffle (see createRaffleAnnouncement
+// below) so the card renders even if the raffle is later edited or deleted.
+// Those fields are simply ignored/omitted for 'update' and 'warning' types.
+function createAnnouncement(data, { title, message, type, winner, raffle }) {
   const isWinner = type === 'winner';
+  const isRaffle = type === 'raffle';
   const announcement = {
     id: nanoid(8),
     title: (title || '').trim(),
     message: (message || '').trim(),
-    type: ['winner', 'warning', 'update'].includes(type) ? type : 'update',
+    type: ['winner', 'warning', 'update', 'raffle'].includes(type) ? type : 'update',
     createdAt: new Date().toISOString(),
     ...(isWinner && winner ? {
       winner: {
@@ -286,10 +289,35 @@ function createAnnouncement(data, { title, message, type, winner }) {
         ticket: (winner.ticket || '').trim(),
         prize: (winner.prize || '').trim()
       }
+    } : {}),
+    ...(isRaffle && raffle ? {
+      raffle: {
+        id: raffle.id,
+        raffleNumber: raffle.raffleNumber,
+        title: (raffle.title || '').trim(),
+        subtitle: (raffle.subtitle || '').trim(),
+        imageUrl: raffle.imageUrl || '',
+        price: raffle.price,
+        totalNumbers: raffle.totalNumbers,
+        drawAt: raffle.drawAt || null
+      }
     } : {})
   };
   data.announcements.unshift(announcement); // newest first
   return announcement;
+}
+
+// Convenience wrapper used right after a raffle is created (see POST
+// /raffles in routes/admin.js) so every new raffle automatically shows up
+// in every visitor's inbox under the bell icon, without the admin having to
+// separately go post a matching announcement by hand.
+function createRaffleAnnouncement(data, raffle) {
+  return createAnnouncement(data, {
+    title: `New raffle: ${raffle.title}`,
+    message: raffle.subtitle ? `${raffle.subtitle} — tickets are now available.` : 'Tickets are now available.',
+    type: 'raffle',
+    raffle
+  });
 }
 
 function deleteAnnouncement(data, id) {
@@ -360,6 +388,6 @@ module.exports = {
   load, save, sweepExpired, defaultData, getOrCreateCustomer,
   upsertTelegramUser, findTelegramUser,
   banTelegramUser, unbanTelegramUser, isPhoneBanned,
-  createAnnouncement, deleteAnnouncement,
+  createAnnouncement, createRaffleAnnouncement, deleteAnnouncement,
   DATA_FILE
 };
