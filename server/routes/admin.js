@@ -592,7 +592,7 @@ router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), asyn
 });
 
 router.post('/raffles', (req, res) => {
-  const { title, subtitle, imageUrl, price, totalNumbers, drawAt, badge, rating, raffleNumber } = req.body;
+  const { title, subtitle, imageUrl, price, totalNumbers, drawAt, badge, rating, raffleNumber, notifyTelegram } = req.body;
   if (!title || !String(title).trim()) {
     return res.status(400).json({ error: 'title is required' });
   }
@@ -636,8 +636,38 @@ router.post('/raffles', (req, res) => {
     createdAt: new Date().toISOString()
   };
   data.raffles.push(raffle);
+
+  // Every new raffle automatically lands in every visitor's inbox under the
+  // bell icon (see GET /api/announcements in routes/public.js) - same
+  // on-site mechanism as a manually-typed announcement, so nothing extra is
+  // needed on the customer app to show it. Uses the raffle object built
+  // above, which already carries a snapshot-safe shape (title, subtitle,
+  // imageUrl, price, etc.), consistent with the winner-announcement pattern
+  // where the card survives even if the raffle is later edited/deleted.
+  const announcement = db.createRaffleAnnouncement(data, raffle);
+
   db.save(data);
   res.status(201).json({ raffle });
+
+  // Fire-and-forget Telegram push to everyone who has linked their phone,
+  // same pattern as POST /announcements above - never blocks the HTTP
+  // response, and one failed send must not stop the rest. Opt-out rather
+  // than opt-in (skipped only when the admin explicitly passes
+  // notifyTelegram: false) so a new raffle reaches users by default, the
+  // same way it already appears in the on-site inbox by default. Skips
+  // banned users, same reasoning as POST /announcements.
+  if (notifyTelegram !== false) {
+    const recipients = (data.telegramUsers || []).filter(u => !u.banned);
+    const text = `🚗 ${announcement.title}\n\n` +
+      (raffle.subtitle ? `${raffle.subtitle}\n` : '') +
+      `Ticket price: ${raffle.price.toLocaleString()} Birr\n` +
+      `Total tickets: ${raffle.totalNumbers.toLocaleString()}`;
+    Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
+      .then(results => {
+        const failed = results.filter(r => r.status === 'rejected').length;
+        if (failed) console.warn(`[raffles] ${failed}/${recipients.length} Telegram sends failed for new-raffle announcement ${announcement.id}`);
+      });
+  }
 });
 
 router.put('/raffles/:id', (req, res) => {
