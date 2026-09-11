@@ -127,13 +127,18 @@ async function sendTelegramPhoto(chatId, photoUrl, caption, replyMarkup) {
  * @param {string} text
  * @param {object} [opts]
  * @param {string} [opts.imageUrl] - absolute https URL (see sendTelegramPhoto)
+ * @param {boolean} [opts.includeBuyButton] - attach the "Buy Now" Mini App
+ *   button to the push. Defaults to true (the original, always-on
+ *   behavior) - pass false for an announcement where a buy button doesn't
+ *   make sense (e.g. a general update or a warning unrelated to purchasing).
  * @returns {Promise<{total: number, sent: number, failed: number}>}
  */
 async function notifyAllCustomers(data, text, opts = {}) {
   if (!isConfigured()) return { total: 0, sent: 0, failed: 0 };
+  const includeBuyButton = opts.includeBuyButton !== false;
   const recipients = (data.telegramUsers || []).filter(u => !u.banned);
   const results = await Promise.allSettled(recipients.map(u => {
-    const markup = buyNowButton(u.language);
+    const markup = includeBuyButton ? buyNowButton(u.language) : null;
     return opts.imageUrl
       ? sendTelegramPhoto(u.telegramId, opts.imageUrl, text, markup)
       : sendTelegramMessage(u.telegramId, text, markup);
