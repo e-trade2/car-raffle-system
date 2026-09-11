@@ -657,6 +657,28 @@ router.post('/telegram/link', (req, res) => {
   res.json({ ok: true, telegramId: user.telegramId });
 });
 
+// GET /telegram/status/:telegramId lets the bot ask "have we already seen
+// this Telegram account share a phone number?" before deciding how to
+// answer /start - if so, the bot skips straight to the "open app" button
+// instead of re-running the language-picker + phone-share flow on every
+// /start. Same internal-key gate and reasoning as POST /telegram/link
+// above: this indirectly confirms whether a given Telegram id is a known
+// customer, which shouldn't be answerable by an arbitrary caller.
+router.get('/telegram/status/:telegramId', (req, res) => {
+  if (!INTERNAL_API_KEY) {
+    return res.status(503).json({ error: 'Telegram linking is not configured on this server' });
+  }
+  const providedKey = req.get('x-internal-key') || '';
+  if (!providedKey || !timingSafeStringEqual(providedKey, INTERNAL_API_KEY)) {
+    reportLockout(`telegram-status-badkey:${req.ip}`, `IP ${req.ip} called GET /telegram/status with a missing/wrong internal key.`);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const data = db.load();
+  const user = db.findTelegramUser(data, req.params.telegramId);
+  if (!user || user.banned) return res.json({ linked: false });
+  res.json({ linked: true, language: user.language || null });
+});
+
 router.post('/telegram/prefill', (req, res) => {
   if (isTicketsLookupRateLimited(req.ip)) {
     return res.status(429).json({ error: 'Too many attempts from this network. Please wait a bit and try again.' });
