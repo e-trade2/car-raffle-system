@@ -247,6 +247,12 @@
         <textarea id="annWinnerNote" rows="2" placeholder="Anything extra to add below the winner card..." style="width:100%;resize:vertical;"></textarea>
       </div>
 
+      <div class="grid2" style="margin-bottom:12px;">
+        <div><label>Image URL (optional)</label><input type="text" id="annImageUrl" placeholder="https://..."></div>
+        <div><label>Or upload an image (optional)</label><input type="file" id="annImageFile" accept="image/*"></div>
+      </div>
+      <div id="annImagePreviewWrap" style="display:none;margin:0 0 12px;"><img id="annImagePreview" style="max-width:140px;border-radius:8px;display:block;"></div>
+
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13px;margin-bottom:12px;">
         <input type="checkbox" id="annNotifyTelegram" style="width:auto;">
         Also send as a Telegram DM to everyone who has linked their phone
