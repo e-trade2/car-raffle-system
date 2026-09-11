@@ -209,4 +209,4 @@ async function start() {
     console.log(`Admin panel at http://localhost:${PORT}/admin  (username: admin - see above for the password on first run, or check data/db.json's existing setup)`);
   });
 }
-start();s
+start();
