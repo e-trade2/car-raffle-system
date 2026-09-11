@@ -126,6 +126,13 @@ const carPhotosDir = path.join(uploadsDir, 'cars');
 if (!fs.existsSync(carPhotosDir)) fs.mkdirSync(carPhotosDir, { recursive: true });
 app.use('/uploads/cars', express.static(carPhotosDir));
 
+// Same public/no-access-control reasoning as car photos above - announcement
+// photos are marketing/informational content the admin chose to broadcast
+// to everyone, never anything sensitive like a receipt.
+const announcementPhotosDir = path.join(uploadsDir, 'announcements');
+if (!fs.existsSync(announcementPhotosDir)) fs.mkdirSync(announcementPhotosDir, { recursive: true });
+app.use('/uploads/announcements', express.static(announcementPhotosDir));
+
 // API routes
 app.use('/api', publicRoutes);
 app.use('/api/admin', adminRoutes);
@@ -202,4 +209,4 @@ async function start() {
     console.log(`Admin panel at http://localhost:${PORT}/admin  (username: admin - see above for the password on first run, or check data/db.json's existing setup)`);
   });
 }
-start();
+start();s
