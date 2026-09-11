@@ -332,6 +332,7 @@ function renderAnnouncementsSection(){
           <div class="winner-card-id">👤 ${esc(a.winner.name)}${a.winner.phone ? ` · ${esc(a.winner.phone)}` : ''}</div>
           <div class="winner-card-trophy">🏆</div>
         </div>
+        ${a.imageUrl ? `<img src="${esc(a.imageUrl)}" style="width:100%;border-radius:10px;margin:8px 0;display:block;">` : ''}
         ${a.winner.lottery ? `
         <div class="winner-card-field">
           <div class="winner-card-field-label">${t('lotteryLbl')}</div>
@@ -376,6 +377,7 @@ function renderAnnouncementsSection(){
       <div class="notif-icon notif-${a.type || 'update'}-icon">${ANN_ICON[a.type] || '📢'}</div>
       <div class="notif-card-body">
         <div class="notif-card-title">${esc(a.title)}</div>
+        ${a.imageUrl ? `<img src="${esc(a.imageUrl)}" style="width:100%;border-radius:10px;margin:6px 0;display:block;">` : ''}
         <div class="notif-card-msg">${esc(a.message)}</div>
         <div class="notif-card-sub">${new Date(a.createdAt).toLocaleString()}</div>
       </div>
