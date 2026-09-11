@@ -272,7 +272,7 @@ function isPhoneBanned(data, phone) {
 // announcements carry a snapshot of the new raffle (see createRaffleAnnouncement
 // below) so the card renders even if the raffle is later edited or deleted.
 // Those fields are simply ignored/omitted for 'update' and 'warning' types.
-function createAnnouncement(data, { title, message, type, winner, raffle }) {
+function createAnnouncement(data, { title, message, type, winner, raffle, imageUrl }) {
   const isWinner = type === 'winner';
   const isRaffle = type === 'raffle';
   const announcement = {
@@ -280,6 +280,13 @@ function createAnnouncement(data, { title, message, type, winner, raffle }) {
     title: (title || '').trim(),
     message: (message || '').trim(),
     type: ['winner', 'warning', 'update', 'raffle'].includes(type) ? type : 'update',
+    // Optional photo shown above the announcement (on-site bell-icon card
+    // and, if this announcement is also pushed to Telegram, as the photo
+    // itself with this text as its caption instead of a plain text
+    // message). Admin-supplied, same as a raffle's imageUrl - either a
+    // direct URL they typed or the result of uploading a file via
+    // POST /announcements/photo.
+    imageUrl: (imageUrl || '').trim(),
     createdAt: new Date().toISOString(),
     ...(isWinner && winner ? {
       winner: {
