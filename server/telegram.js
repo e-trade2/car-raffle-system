@@ -25,6 +25,123 @@ const { normalizePhone } = require('./utils');
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
 
+// Same Mini App the companion bot's MINI_APP_URL points at (see
+// car-raffle-telegram-bot/bot.js) - kept as its own env var here rather than
+// reusing INTERNAL_API_KEY/TELEGRAM_BOT_TOKEN's "shared with the bot" setup,
+// because this one is just a public URL, not a secret, and this server may
+// want to send it even if the bot integration itself isn't configured.
+const MINI_APP_URL = process.env.MINI_APP_URL || '';
+if (MINI_APP_URL && !/^https:\/\//.test(MINI_APP_URL)) {
+  // Non-fatal here (unlike the bot's own startup check) - a Buy Now button
+  // is a nice-to-have on top of the notification, not the entire point of
+  // this process, so a bad URL should log loudly rather than crash the
+  // whole server. Telegram will just silently reject the button at send
+  // time otherwise, which is a much more confusing failure to debug.
+  console.warn('⚠️  MINI_APP_URL is set but does not start with https:// - Telegram requires HTTPS for Mini App buttons, so Buy Now buttons will fail to send.');
+}
+
+const SUPPORTED_LANGS = ['om', 'am', 'en'];
+const BUY_NOW_LABEL = {
+  om: '🚗 Amma Bitadhu',
+  am: '🚗 አሁን ይግዙ',
+  en: '🚗 Buy Now'
+};
+
+/**
+ * Inline "Buy Now" button that opens the raffle Mini App, for attaching to
+ * any customer-facing Telegram message (order approved/rejected, winner
+ * announcement, new raffle, general announcement). Returns null - meaning
+ * "send with no button" - when MINI_APP_URL isn't configured, so this
+ * feature is opt-in the same way the rest of the Telegram integration is:
+ * every call site stays functional without it, just without the button.
+ *
+ * @param {string} [language] - 'om'/'am'/'en' (telegramUsers.language);
+ *   falls back to English for anyone who hasn't picked one, or picked one
+ *   this server doesn't recognize.
+ */
+function buyNowButton(language) {
+  if (!MINI_APP_URL) return null;
+  const lang = SUPPORTED_LANGS.includes(language) ? language : 'en';
+  return {
+    inline_keyboard: [[
+      { text: BUY_NOW_LABEL[lang], web_app: { url: MINI_APP_URL } }
+    ]]
+  };
+}
+
+/**
+ * Same as sendTelegramMessage, but sends a photo with the given text as its
+ * caption instead of a text-only message - used when an announcement/new
+ * raffle has an image attached. `photoUrl` must be a URL Telegram's own
+ * servers can fetch (an absolute http(s) URL) - it does not accept a local
+ * relative path or a raw file upload here, so callers with a locally-stored
+ * image must resolve it to an absolute URL first (see toAbsoluteImageUrl in
+ * routes/admin.js).
+ *
+ * Telegram caps photo captions at 1024 characters; anything longer is
+ * truncated here rather than left to fail outright, since a caption that's
+ * merely long is still far more useful delivered-and-trimmed than not
+ * delivered at all.
+ */
+async function sendTelegramPhoto(chatId, photoUrl, caption, replyMarkup) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN is not set');
+
+  const CAPTION_LIMIT = 1024;
+  const safeCaption = caption && caption.length > CAPTION_LIMIT
+    ? `${caption.slice(0, CAPTION_LIMIT - 1)}…`
+    : caption;
+
+  const res = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendPhoto`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      photo: photoUrl,
+      caption: safeCaption,
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+    })
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || body.ok !== true) {
+    const detail = (body && body.description) || res.statusText;
+    throw new Error(`Telegram sendPhoto failed (${res.status}): ${detail}`);
+  }
+  return body.result;
+}
+
+/**
+ * Push the same message to every customer who has linked Telegram (skips
+ * banned users) - the shared implementation behind both the general
+ * Announcements broadcast and the "new raffle" broadcast in
+ * routes/admin.js, which previously each ran their own near-identical
+ * Promise.allSettled loop. Sends a photo (caption = text) when
+ * opts.imageUrl is given, otherwise plain text - Buy Now button attached
+ * either way, localized per-recipient same as notifyCustomer. Never
+ * throws: one admin action pushing to hundreds of recipients must not be
+ * able to fail the HTTP response, and one blocked/broken recipient must
+ * not stop the rest from being messaged.
+ *
+ * @param {object} data - loaded db data (needs .telegramUsers)
+ * @param {string} text
+ * @param {object} [opts]
+ * @param {string} [opts.imageUrl] - absolute https URL (see sendTelegramPhoto)
+ * @returns {Promise<{total: number, sent: number, failed: number}>}
+ */
+async function notifyAllCustomers(data, text, opts = {}) {
+  if (!isConfigured()) return { total: 0, sent: 0, failed: 0 };
+  const recipients = (data.telegramUsers || []).filter(u => !u.banned);
+  const results = await Promise.allSettled(recipients.map(u => {
+    const markup = buyNowButton(u.language);
+    return opts.imageUrl
+      ? sendTelegramPhoto(u.telegramId, opts.imageUrl, text, markup)
+      : sendTelegramMessage(u.telegramId, text, markup);
+  }));
+  const failed = results.filter(r => r.status === 'rejected').length;
+  return { total: recipients.length, sent: recipients.length - failed, failed };
+}
+
 function isConfigured() {
   return Boolean(process.env.TELEGRAM_BOT_TOKEN);
 }
@@ -42,15 +159,24 @@ function isConfigured() {
  * (raffle titles, rejection reasons) is admin-authored, not attacker
  * input, but plain text sidesteps ever having to think about escaping for
  * Telegram's HTML/Markdown parsers entirely.
+ *
+ * @param {object} [replyMarkup] - e.g. the result of buyNowButton(); passed
+ *   through untouched, so any Telegram reply_markup shape works, not just
+ *   this file's own buttons.
  */
-async function sendTelegramMessage(chatId, text) {
+async function sendTelegramMessage(chatId, text, replyMarkup) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN is not set');
 
   const res = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true })
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true,
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+    })
   });
 
   const body = await res.json().catch(() => null);
@@ -99,7 +225,7 @@ async function notifyCustomer(data, order, text, opts = {}) {
       link = users.find(u => u.username && u.username.toLowerCase() === target);
     }
     if (!link) return; // this buyer never shared their phone (or username) with the bot
-    await sendTelegramMessage(link.telegramId, text);
+    await sendTelegramMessage(link.telegramId, text, buyNowButton(link.language));
   } catch (err) {
     console.error(`[telegram] Failed to notify order ${order.id} (phone ${order.phone}):`, err.message);
   }
@@ -173,4 +299,4 @@ async function notifyAdmin(data, text) {
   }
 }
 
-module.exports = { sendTelegramMessage, notifyCustomer, notifyAdmin, findChatIdByUsername, isConfigured };
+module.exports = { sendTelegramMessage, sendTelegramPhoto, notifyCustomer, notifyAllCustomers, notifyAdmin, findChatIdByUsername, isConfigured, buyNowButton };
