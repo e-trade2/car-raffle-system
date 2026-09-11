@@ -8,7 +8,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers, maskWinnerName } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
-const { notifyCustomer, notifyAdmin, findChatIdByUsername, sendTelegramMessage } = require('../telegram');
+const { notifyCustomer, notifyAllCustomers, notifyAdmin, findChatIdByUsername } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
@@ -65,6 +65,64 @@ async function ensureCarPhotosBucket() {
   }
 }
 ensureCarPhotosBucket();
+
+// ---- Announcement photo upload ----
+// Same shape as the car-photo upload above (own dir/bucket rather than
+// sharing "cars" storage, since these images are conceptually unrelated to
+// any raffle - an announcement can be a plain text update with no car
+// involved at all).
+const announcementPhotosDir = path.join(__dirname, '..', '..', 'uploads', 'announcements');
+if (!fs.existsSync(announcementPhotosDir)) fs.mkdirSync(announcementPhotosDir, { recursive: true });
+
+const announcementPhotoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, announcementPhotosDir),
+  filename: (req, file, cb) => {
+    const rawExt = path.extname(file.originalname).toLowerCase();
+    const ext = /^\.(jpg|jpeg|png|gif|webp)$/.test(rawExt) ? rawExt : '.jpg';
+    cb(null, `${Date.now()}_${nanoid(6)}${ext}`);
+  }
+});
+const uploadAnnouncementPhoto = multer({
+  storage: announcementPhotoStorage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed for announcement photos'));
+  }
+});
+
+const ANNOUNCEMENT_PHOTOS_BUCKET = 'announcement-photos';
+let announcementPhotosBucketEnsured = false;
+async function ensureAnnouncementPhotosBucket() {
+  if (announcementPhotosBucketEnsured) return;
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.storage.createBucket(ANNOUNCEMENT_PHOTOS_BUCKET, { public: true });
+    if (error && !/already exists/i.test(error.message || '')) {
+      console.warn('⚠️  Could not create Supabase announcement-photos bucket:', error.message);
+    }
+  } catch (err) {
+    console.warn('⚠️  Could not create Supabase announcement-photos bucket:', err.message);
+  } finally {
+    announcementPhotosBucketEnsured = true;
+  }
+}
+ensureAnnouncementPhotosBucket();
+
+// Turns a stored imageUrl into something Telegram's servers can fetch for
+// sendPhoto: already-absolute URLs (Supabase's public URLs, or anything the
+// admin typed directly into an "Image URL" field) pass through unchanged;
+// a locally-stored relative path (e.g. /uploads/announcements/xyz.jpg, on a
+// deploy with no Supabase configured) gets this request's own origin
+// prefixed onto it, same pattern already used for the password-reset link
+// above. Returns null for no image so callers can spread it away cleanly.
+function toAbsoluteImageUrl(req, imageUrl) {
+  if (!imageUrl) return null;
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return `${origin}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+}
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.adminId) return next();
@@ -489,13 +547,50 @@ router.post('/telegram-users/:telegramId/unban', (req, res) => {
 // Telegram DM to every user who has linked their phone, for the subset of
 // users who'll actually see a push notification for it rather than having
 // to open the app and check the bell.
+// Upload an announcement photo -> returns { imageUrl }, same contract as
+// POST /raffles/photo above (own bucket, see comment on that route).
+router.post('/announcements/photo', handleUpload(uploadAnnouncementPhoto.single('photo')), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
+  verifyUploadedImage(req.file.path, async (verifyErr) => {
+    if (verifyErr) return res.status(400).json({ error: verifyErr.message });
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const objectPath = req.file.filename;
+        const { error: uploadErr } = await supabase.storage
+          .from(ANNOUNCEMENT_PHOTOS_BUCKET)
+          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
+        fs.unlink(req.file.path, () => {});
+        if (uploadErr) {
+          console.warn('⚠️  Supabase announcement photo upload failed:', uploadErr.message);
+          return res.status(502).json({ error: 'Could not store the photo. Please try again.' });
+        }
+        const { data: pub } = supabase.storage.from(ANNOUNCEMENT_PHOTOS_BUCKET).getPublicUrl(objectPath);
+        return res.json({ imageUrl: pub.publicUrl });
+      } catch (err) {
+        fs.unlink(req.file.path, () => {});
+        console.warn('⚠️  Supabase announcement photo upload failed:', err.message);
+        return res.status(502).json({ error: 'Could not store the photo. Please try again.' });
+      }
+    }
+
+    // No Supabase configured - same ephemeral-local-disk caveat as car
+    // photos (won't survive a redeploy on hosts with an ephemeral
+    // filesystem, e.g. Render's free tier).
+    const imageUrl = `/uploads/announcements/${req.file.filename}`;
+    res.json({ imageUrl });
+  });
+});
+
 router.get('/announcements', (req, res) => {
   const data = db.load();
   res.json({ announcements: data.announcements || [] });
 });
 
 router.post('/announcements', (req, res) => {
-  const { title, message, type, notifyTelegram, winner } = req.body || {};
+  const { title, message, type, notifyTelegram, winner, imageUrl } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
   const isWinner = type === 'winner';
   // A winner announcement is meaningless without at least a name and a
@@ -509,7 +604,7 @@ router.post('/announcements', (req, res) => {
   }
 
   const data = db.load();
-  const announcement = db.createAnnouncement(data, { title, message, type, winner });
+  const announcement = db.createAnnouncement(data, { title, message, type, winner, imageUrl });
   db.save(data);
   res.status(201).json({ announcement });
 
@@ -519,7 +614,6 @@ router.post('/announcements', (req, res) => {
   // Skips banned users deliberately - a warning/update isn't meant to
   // reach someone the admin has already banned.
   if (notifyTelegram) {
-    const recipients = (data.telegramUsers || []).filter(u => !u.banned);
     const text = isWinner
       ? `🏆 ${announcement.title}\n\n` +
         `Winner: ${winner.name}${winner.phone ? ` (${winner.phone})` : ''}\n` +
@@ -528,10 +622,13 @@ router.post('/announcements', (req, res) => {
         (winner.prize ? `Prize: ${winner.prize}\n` : '') +
         (announcement.message ? `\n${announcement.message}` : '')
       : `${announcement.title}\n\n${announcement.message}`;
-    Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
-      .then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length;
-        if (failed) console.warn(`[announcements] ${failed}/${recipients.length} Telegram sends failed for announcement ${announcement.id}`);
+    // Sends as a photo (caption = text) when the admin attached an image,
+    // otherwise plain text - Buy Now button attached either way. See
+    // notifyAllCustomers/buyNowButton in telegram.js.
+    const imageUrlAbsolute = toAbsoluteImageUrl(req, announcement.imageUrl);
+    notifyAllCustomers(data, text, { imageUrl: imageUrlAbsolute })
+      .then(({ failed, total }) => {
+        if (failed) console.warn(`[announcements] ${failed}/${total} Telegram sends failed for announcement ${announcement.id}`);
       });
   }
 });
@@ -657,15 +754,18 @@ router.post('/raffles', (req, res) => {
   // same way it already appears in the on-site inbox by default. Skips
   // banned users, same reasoning as POST /announcements.
   if (notifyTelegram !== false) {
-    const recipients = (data.telegramUsers || []).filter(u => !u.banned);
     const text = `🚗 ${announcement.title}\n\n` +
       (raffle.subtitle ? `${raffle.subtitle}\n` : '') +
       `Ticket price: ${raffle.price.toLocaleString()} Birr\n` +
       `Total tickets: ${raffle.totalNumbers.toLocaleString()}`;
-    Promise.allSettled(recipients.map(u => sendTelegramMessage(u.telegramId, text)))
-      .then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length;
-        if (failed) console.warn(`[raffles] ${failed}/${recipients.length} Telegram sends failed for new-raffle announcement ${announcement.id}`);
+    // The raffle's own car photo doubles as the notification image, same
+    // as the general announcement broadcast above - a new raffle almost
+    // always has one, so this is effectively "free" (no separate upload
+    // step for the admin).
+    const imageUrlAbsolute = toAbsoluteImageUrl(req, raffle.imageUrl);
+    notifyAllCustomers(data, text, { imageUrl: imageUrlAbsolute })
+      .then(({ failed, total }) => {
+        if (failed) console.warn(`[raffles] ${failed}/${total} Telegram sends failed for new-raffle announcement ${announcement.id}`);
       });
   }
 });
