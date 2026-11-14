@@ -132,7 +132,7 @@ const TEXT = {
     notifTitle:"Notifications", latestWinnersLbl:"Latest Winners", myTicketsLblNotif:"My Tickets",
     noWinnersLbl:"No winners announced yet", noTicketsLbl:"No tickets found",
     wonLbl:"won ticket", noTicketsHint:"Place an order and check My Tickets to see your history here.",
-    legendSelectedLbl:"Selected", legendTakenLbl:"Taken", legendFreeLbl:"Free",
+    legendSelectedLbl:"Selected", legendReservedLbl:"Reserved", legendSoldLbl:"Sold", legendTakenLbl:"Taken", legendFreeLbl:"Free",
     announcementsLbl:"Announcements", noAnnouncementsLbl:"No announcements yet",
     lotteryLbl:"Lottery", winningTicketLbl:"Winning Ticket", prizeLbl:"Prize",
     tabAllLbl:"All", tabFeaturedLbl:"Featured", tabNewLbl:"New",
@@ -175,7 +175,7 @@ const TEXT = {
     notifTitle:"ማሳወቂያዎች", latestWinnersLbl:"የቅርብ ጊዜ አሸናፊዎች", myTicketsLblNotif:"የኔ ትኬቶች",
     noWinnersLbl:"እስካሁን አሸናፊ አልታወጀም", noTicketsLbl:"ምንም ትኬት አልተገኘም",
     wonLbl:"ትኬት አሸንፏል", noTicketsHint:"ትዕዛዝ ካስገቡ በኋላ የትኬት ታሪክዎን እዚህ ለማየት 'የኔ ትኬቶች' ይመልከቱ።",
-    legendSelectedLbl:"የተመረጠ", legendTakenLbl:"የተያዘ", legendFreeLbl:"ክፍት",
+    legendSelectedLbl:"ተመርጧል", legendReservedLbl:"ተይዟል", legendSoldLbl:"ተሸጧል", legendTakenLbl:"የተያዘ", legendFreeLbl:"ይገኛል",
     announcementsLbl:"ማስታወቂያዎች", noAnnouncementsLbl:"እስካሁን ምንም ማስታወቂያ የለም",
     lotteryLbl:"ሎተሪ", winningTicketLbl:"አሸናፊ ትኬት", prizeLbl:"ሽልማት",
     tabAllLbl:"ሁሉም", tabFeaturedLbl:"ተመራጭ", tabNewLbl:"አዲስ",
@@ -218,7 +218,7 @@ const TEXT = {
     notifTitle:"Beeksisoota", latestWinnersLbl:"Injifattoota Dhiyoo", myTicketsLblNotif:"Tikeetii Koo",
     noWinnersLbl:"Hanga ammaatti injifataan hin labsamne", noTicketsLbl:"Tikeetiin hin argamne",
     wonLbl:"tikeetii mo'ate", noTicketsHint:"Ajaja erga galchitanii booda seenaa tikeetii keessan asirratti ilaaluuf 'Tikeetii Koo' ilaalaa.",
-    legendSelectedLbl:"Filatame", legendTakenLbl:"Gurgurame", legendFreeLbl:"Jira",
+    legendSelectedLbl:"Filatame", legendReservedLbl:"Qabame", legendSoldLbl:"Gurgurame", legendTakenLbl:"Gurgurame", legendFreeLbl:"Jira",
     announcementsLbl:"Beeksisoota", noAnnouncementsLbl:"Hanga ammaatti beeksisni hin jiru",
     lotteryLbl:"Lootarii", winningTicketLbl:"Tikeetii Injifate", prizeLbl:"Badhaasa",
     tabAllLbl:"Hundaa", tabFeaturedLbl:"Filatamoo", tabNewLbl:"Haaraa",
@@ -229,7 +229,7 @@ const TEXT = {
     newRaffleLbl:"Lootarii Haaraa", viewRaffleLbl:"Lootarii Ilaali",
   }
 };
-const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
+const LANG_NAME = { en:"English", am:"Amharic", om:"Afaan Oromo" };
 const SUPPORTED_LANGS = ['om', 'am', 'en'];
 
 // Direct bot -> mini app language handoff: the bot appends ?lang=om/am/en
@@ -461,6 +461,7 @@ function showView(id){
   el.classList.add('view-enter');
   window.scrollTo({ top:0, behavior:'auto' });
   document.querySelectorAll('.nav-item').forEach(n=> n.classList.remove('active'));
+  document.body.classList.toggle('no-nav', id === 'detailView');
 }
 document.getElementById('navHomeItem').addEventListener('click', ()=>{ showView('homeView'); document.getElementById('navHomeItem').classList.add('active'); });
 document.getElementById('navTicketsItem').addEventListener('click', ()=>{ showView('ticketsView'); document.getElementById('navTicketsItem').classList.add('active'); loadSavedPhoneIntoTickets(); });
@@ -516,11 +517,65 @@ function carHtml(raffle){
   </svg>`;
 }
 
+
+/* ---- Hero tint: the card's green fade picks up a hint of the uploaded car's colour ---- */
+const heroTintCache = {};
+function computeHeroTint(img){
+  // Estimate the car's colour: the studio backdrop is read from the photo's top/side edges,
+  // and pixels that differ most from it (the car) count most.
+  const W = 64, H = 40;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently:true });
+  ctx.drawImage(img, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const at = (x,y) => { const i=(y*W+x)*4; return [d[i], d[i+1], d[i+2]]; };
+  let br=0, bg=0, bb=0, bn=0;
+  const addBg = (x,y) => { const p=at(x,y); br+=p[0]; bg+=p[1]; bb+=p[2]; bn++; };
+  for (let x=0; x<W; x++) for (let y=0; y<3; y++) addBg(x,y);
+  for (let y=0; y<Math.floor(H*0.6); y++) for (let x=0; x<3; x++){ addBg(x,y); addBg(W-1-x,y); }
+  br/=bn; bg/=bn; bb/=bn;
+  const x0=Math.floor(W*0.1), x1=Math.floor(W*0.9), y0=Math.floor(H*0.2), y1=Math.floor(H*0.82);
+  let r=0, g=0, b=0, ws=0, far=0, n=0, ar=0, ag=0, ab=0;
+  for (let y=y0; y<y1; y++) for (let x=x0; x<x1; x++){
+    const p = at(x,y); n++;
+    ar+=p[0]; ag+=p[1]; ab+=p[2];
+    const dist = Math.hypot(p[0]-br, p[1]-bg, p[2]-bb);
+    if (dist > 30){ const w = dist*dist; r+=p[0]*w; g+=p[1]*w; b+=p[2]*w; ws+=w; far++; }
+  }
+  if (!ws || far/n < 0.08){ r=ar; g=ag; b=ab; ws=n; }     // no clear backdrop: use the middle of the photo
+  r/=ws; g/=ws; b/=ws;
+  // Same colour family as the car, but kept dark enough for white text:
+  // black car -> near black, grey car -> mid grey, red car -> deep red.
+  const L = 0.299*r + 0.587*g + 0.114*b;
+  const Lout = Math.min(92, Math.max(10, 10 + 0.40*L));
+  const k = Lout / Math.max(L, 1);
+  const out = [r,g,b].map(v => Math.round(Math.min(255, Math.max(0, Lout + (v*k - Lout)*0.75))));
+  const fade = out.map(v => Math.round(v*0.6));
+  const edge = out.map(v => Math.min(255, Math.round(v*2.2)));
+  return `--hero-tint:rgb(${out.join(',')});--hero-fade:rgb(${fade.join(',')});--hero-edge:rgba(${edge.join(',')},0.35);`;
+}
+function heroTintStyle(raffle){
+  return (raffle && raffle.imageUrl && heroTintCache[raffle.imageUrl]) || '';
+}
+document.addEventListener('load', (e)=>{
+  const img = e.target;
+  if (!img || img.tagName !== 'IMG') return;
+  const media = img.closest && img.closest('.hero-media');
+  if (!media) return;
+  const hero = media.parentElement, src = img.currentSrc || img.src;
+  const apply = css => { if (hero && css) hero.setAttribute('style', (hero.getAttribute('style')||'').replace(/--hero-[^;]*;/g,'') + css); };
+  if (heroTintCache[src]) { apply(heroTintCache[src]); return; }
+  // sample a separate CORS-enabled copy so the visible image can never fail to load
+  const probe = new Image(); probe.crossOrigin = 'anonymous';
+  probe.onload = () => { try { const css = computeHeroTint(probe); heroTintCache[src] = css; heroTintCache[img.getAttribute('src')] = css; apply(css); } catch(_){ /* tainted canvas: keep default green */ } };
+  probe.src = src;
+}, true);
+
 function raffleCardHtml(raffle, idx){
   const badge = raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('badgeFeaturedLbl')}</div>`
     : raffle.badge === 'new' ? `<div class="badge-new">${t('newBadgeLbl')}</div>` : '';
   return `
-  <div class="hero" style="margin-top:${idx>0?'14px':'0'};">
+  <div class="hero" style="margin-top:${idx>0?'14px':'0'};${heroTintStyle(raffle)}">
     <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
       ${badge}
       <div class="badge-rating">★★★★★</div>
@@ -529,7 +584,7 @@ function raffleCardHtml(raffle, idx){
     <div class="hero-body">
       <div class="car-title">${esc(raffle.title)}</div>
       <div class="car-sub">${esc(raffle.subtitle||'')}</div>
-      <div class="countdown-label">⏱ <span>${t('cdLabel')}</span></div>
+      <div class="countdown-label"><span>${t('cdLabel')}</span></div>
       <div class="countdown" data-raffle="${raffle.id}">
         <div class="cd-box"><div class="cd-num" data-unit="days">--</div><div class="cd-lbl">${t('cdDaysLbl')}</div></div>
         <div class="cd-sep">:</div>
@@ -662,15 +717,17 @@ function renderDetail(raffle){
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>${t('backLabel')}</span>
     </div>
-    <div class="hero">
+    <div class="hero" style="${heroTintStyle(raffle)}">
       <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
         ${raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('badgeFeaturedLbl')}</div>` : raffle.badge === 'new' ? `<div class="badge-new">${t('newBadgeLbl')}</div>` : ''}
         <div class="badge-rating">★★★★★ <span class="rating-num">${raffle.rating.toFixed(1)}</span></div>
         ${carHtml(raffle)}
       </div>
-      <div class="hero-body">
+      <div class="detail-head">
         <div class="car-title">${esc(raffle.title)}</div>
         <div class="car-sub">${esc(raffle.subtitle||'')}</div>
+      </div>
+      <div class="cd-panel">
         <div class="countdown-label">🔥 <span>${t('cdLabel')}</span></div>
         <div class="countdown" data-raffle="${raffle.id}">
           <div class="cd-box"><div class="cd-num" data-unit="days">--</div><div class="cd-lbl">${t('cdDaysLbl')}</div></div>
@@ -696,9 +753,9 @@ function renderDetail(raffle){
         <span>${t('selectedNumsLbl')}</span>
         <div class="selected-chips" id="selectedChips"></div>
       </div>
-      <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span>🎯 <span>${t('pickLabel')}</span></button>
+      <button class="btn btn-outline-pink" id="pickNumbersBtn"><span class="step-badge step-5">5</span><span>${t('pickLabel')}</span></button>
       <div class="btn-row">
-        <button class="btn btn-gold" id="buyNowBtn">⚡ <span>${t('buyLabel')}</span></button>
+        <button class="btn btn-gold" id="buyNowBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>${t('buyLabel')}</span></button>
         <button class="btn btn-green" id="manualSelectBtn"><span>${t('selectBtnLabel')}</span></button>
       </div>
     </div>
