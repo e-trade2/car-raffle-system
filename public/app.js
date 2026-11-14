@@ -518,7 +518,7 @@ function carHtml(raffle){
 }
 
 
-/* ---- Hero tint: the card's green fade picks up a hint of the uploaded car's colour ---- */
+/* ---- Hero tint: the detail card's green fade picks up a hint of the uploaded car's colour ---- */
 const heroTintCache = {};
 function computeHeroTint(img){
   // Estimate the car's colour: the studio backdrop is read from the photo's top/side edges,
@@ -561,7 +561,8 @@ document.addEventListener('load', (e)=>{
   const img = e.target;
   if (!img || img.tagName !== 'IMG') return;
   const media = img.closest && img.closest('.hero-media');
-  if (!media) return;
+  // Home card keeps the default green; only the detail page is car-tinted.
+  if (!media || media.closest('#homeView')) return;
   const hero = media.parentElement, src = img.currentSrc || img.src;
   const apply = css => { if (hero && css) hero.setAttribute('style', (hero.getAttribute('style')||'').replace(/--hero-[^;]*;/g,'') + css); };
   if (heroTintCache[src]) { apply(heroTintCache[src]); return; }
@@ -575,7 +576,7 @@ function raffleCardHtml(raffle, idx){
   const badge = raffle.badge === 'hot' ? `<div class="badge-hot">🔥 ${t('badgeFeaturedLbl')}</div>`
     : raffle.badge === 'new' ? `<div class="badge-new">${t('newBadgeLbl')}</div>` : '';
   return `
-  <div class="hero" style="margin-top:${idx>0?'14px':'0'};${heroTintStyle(raffle)}">
+  <div class="hero" style="margin-top:${idx>0?'14px':'0'};">
     <div class="hero-media${raffle.imageUrl ? '' : ' no-photo'}">
       ${badge}
       <div class="badge-rating">★★★★★</div>
