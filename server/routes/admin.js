@@ -8,7 +8,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers, maskWinnerName } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
-const { notifyCustomer, notifyAllCustomers, notifyAdmin, findChatIdByUsername } = require('../telegram');
+const { notifyCustomer, notifyAllCustomers, notifyAdmin, findChatIdByUsername, sendTelegramMessage, isConfigured, buyNowButton } = require('../telegram');
 const { getClient: getSupabaseClient } = require('../supabase-sync');
 
 const router = express.Router();
@@ -120,7 +120,15 @@ ensureAnnouncementPhotosBucket();
 function toAbsoluteImageUrl(req, imageUrl) {
   if (!imageUrl) return null;
   if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
-  const origin = `${req.protocol}://${req.get('host')}`;
+  // Behind Render/Railway, req.protocol is "http" unless TRUST_PROXY is set, and
+  // Telegram often cannot fetch an http:// image from an https-only site - so
+  // an announcement with a photo would fail for every recipient. Prefer the
+  // proxy's forwarded protocol, and use https for anything that is not localhost.
+  const host = req.get('host') || '';
+  const isLocal = /^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(host);
+  const forwarded = (req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const proto = forwarded || (isLocal ? req.protocol : 'https');
+  const origin = `${proto}://${host}`;
   return `${origin}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
 }
 
@@ -531,6 +539,24 @@ router.post('/telegram-users/:telegramId/ban', (req, res) => {
   res.json({ ok: true, user });
 });
 
+// Sends one test message to one linked Telegram account and reports exactly what
+// Telegram answered. Answers "why did this person not get the announcement?":
+//   403 "bot was blocked by the user"  -> they blocked/stopped the bot
+//   400 "chat not found"               -> they never pressed Start / wrong id
+//   ok                                 -> delivery works; check they are not muted
+router.post('/telegram-users/:telegramId/test', async (req, res) => {
+  if (!isConfigured()) return res.json({ ok: false, error: 'TELEGRAM_BOT_TOKEN is not set on this server' });
+  const data = db.load();
+  const user = db.findTelegramUser(data, req.params.telegramId);
+  if (!user) return res.status(404).json({ error: 'Telegram user not found' });
+  try {
+    await sendTelegramMessage(user.telegramId, '✅ Test message from the raffle admin panel. If you can read this, announcements will reach you.', buyNowButton(user.language));
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, status: err.status || null, error: err.message });
+  }
+});
+
 router.post('/telegram-users/:telegramId/unban', (req, res) => {
   const data = db.load();
   const user = db.unbanTelegramUser(data, req.params.telegramId);
@@ -627,8 +653,9 @@ router.post('/announcements', (req, res) => {
     // notifyAllCustomers/buyNowButton in telegram.js.
     const imageUrlAbsolute = toAbsoluteImageUrl(req, announcement.imageUrl);
     notifyAllCustomers(data, text, { imageUrl: imageUrlAbsolute })
-      .then(({ failed, total }) => {
-        if (failed) console.warn(`[announcements] ${failed}/${total} Telegram sends failed for announcement ${announcement.id}`);
+      .then(({ failed, total, sent, reasons }) => {
+        console.log(`[announcements] announcement ${announcement.id}: ${sent}/${total} delivered on Telegram`);
+        if (failed) console.warn(`[announcements] ${failed}/${total} Telegram sends failed for announcement ${announcement.id}:`, reasons);
       });
   }
 });
