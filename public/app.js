@@ -24,6 +24,8 @@ const API = '/api';
     @keyframes heroZoom{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.04); } }
     .hero-media img{ animation:heroZoom 8s ease-in-out infinite; transform-origin:center center; will-change:transform; }
     @media (prefers-reduced-motion: reduce){ .hero-media img{ animation:none; } }
+    /* Countdown panel on the detail page stays green, not car-tinted */
+    .cd-panel{ background:linear-gradient(180deg,#0a3d2a 0%,#08150f 100%) !important; border:1px solid rgba(34,197,94,0.32) !important; }
   `;
   document.head.appendChild(s);
 })();
