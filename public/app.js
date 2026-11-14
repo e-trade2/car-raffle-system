@@ -229,7 +229,7 @@ const TEXT = {
     newRaffleLbl:"Lootarii Haaraa", viewRaffleLbl:"Lootarii Ilaali",
   }
 };
-const LANG_NAME = { en:"English", am:"አማርኛ", om:"Afaan Oromo" };
+const LANG_NAME = { en:"English", am:"Amharic", om:"Afaan Oromo" };
 const SUPPORTED_LANGS = ['om', 'am', 'en'];
 
 // Direct bot -> mini app language handoff: the bot appends ?lang=om/am/en
@@ -529,7 +529,7 @@ function raffleCardHtml(raffle, idx){
     <div class="hero-body">
       <div class="car-title">${esc(raffle.title)}</div>
       <div class="car-sub">${esc(raffle.subtitle||'')}</div>
-      <div class="countdown-label">⏱ <span>${t('cdLabel')}</span></div>
+      <div class="countdown-label"><span>${t('cdLabel')}</span></div>
       <div class="countdown" data-raffle="${raffle.id}">
         <div class="cd-box"><div class="cd-num" data-unit="days">--</div><div class="cd-lbl">${t('cdDaysLbl')}</div></div>
         <div class="cd-sep">:</div>
@@ -671,7 +671,7 @@ function renderDetail(raffle){
       <div class="hero-body">
         <div class="car-title">${esc(raffle.title)}</div>
         <div class="car-sub">${esc(raffle.subtitle||'')}</div>
-        <div class="countdown-label">🔥 <span>${t('cdLabel')}</span></div>
+        <div class="countdown-label"><span>${t('cdLabel')}</span></div>
         <div class="countdown" data-raffle="${raffle.id}">
           <div class="cd-box"><div class="cd-num" data-unit="days">--</div><div class="cd-lbl">${t('cdDaysLbl')}</div></div>
           <div class="cd-sep">:</div>
