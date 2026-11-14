@@ -14,6 +14,20 @@ if (window.Telegram && window.Telegram.WebApp) {
 
 const API = '/api';
 
+// Slow, subtle zoom-in-and-back on the hero car photo (home card + detail
+// page). The image zooms ~6% over 7s and eases back, looping. The card's
+// overflow:hidden crops the overflow, so nothing spills. Skipped for users
+// who ask their device to reduce motion.
+(function(){
+  const s = document.createElement('style');
+  s.textContent = `
+    @keyframes heroZoom{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.06); } }
+    .hero-media img{ animation:heroZoom 7s ease-in-out infinite; transform-origin:center center; will-change:transform; }
+    @media (prefers-reduced-motion: reduce){ .hero-media img{ animation:none; } }
+  `;
+  document.head.appendChild(s);
+})();
+
 // Reports uncaught JS errors and unhandled promise rejections back to the
 // server. Without this, a crash on a customer's phone (e.g. a button that
 // silently does nothing because a script error happened before it could
