@@ -137,6 +137,7 @@ function renderTelegramUsers(users){
         ${u.banned
           ? `<button class="btn-red" data-unban="${esc(u.telegramId)}">Unban</button>`
           : `<button class="btn-red" data-ban="${esc(u.telegramId)}">Ban</button>`}
+        <button class="btn-red" style="background:transparent;border:1px solid currentColor;margin-left:6px;" data-test="${esc(u.telegramId)}">Send test</button>
       </td>
     </tr>
   `).join('');
@@ -152,6 +153,16 @@ function renderTelegramUsers(users){
       });
       loadTelegramUsers();
     } catch (e) { alert(e.message); }
+  }));
+
+  body.querySelectorAll('[data-test]').forEach(btn => btn.addEventListener('click', async () => {
+    const telegramId = btn.dataset.test;
+    btn.disabled = true;
+    try {
+      const r = await api(`/telegram-users/${encodeURIComponent(telegramId)}/test`, { method: 'POST' });
+      alert(r.ok ? 'Delivered - this account can receive messages.' : `Not delivered.\n\n${r.error}`);
+    } catch (e) { alert(e.message); }
+    btn.disabled = false;
   }));
 
   body.querySelectorAll('[data-unban]').forEach(btn => btn.addEventListener('click', async () => {
