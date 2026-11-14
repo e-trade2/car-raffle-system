@@ -41,6 +41,37 @@ if (MINI_APP_URL && !/^https:\/\//.test(MINI_APP_URL)) {
 }
 
 const SUPPORTED_LANGS = ['om', 'am', 'en'];
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Builds an Error that also carries Telegram's HTTP status and, for 429
+// (rate limited), how many seconds Telegram says to wait. Lets callers
+// tell "user blocked the bot" (403) from "slow down" (429) from "bad photo
+// URL" (400) instead of treating every failure the same.
+function telegramError(method, status, body, fallbackText) {
+  const detail = (body && body.description) || fallbackText;
+  const err = new Error(`Telegram ${method} failed (${status}): ${detail}`);
+  err.status = status;
+  err.retryAfter = body && body.parameters && body.parameters.retry_after;
+  return err;
+}
+
+// Retries only on 429, waiting as long as Telegram asks. Without this, a
+// broadcast to more than ~30 people in one burst loses everyone past the
+// rate limit, silently.
+async function withRateLimitRetry(fn, attempts = 4) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err.status === 429 && i < attempts - 1) {
+        await sleep(((err.retryAfter || 1) * 1000) + 250);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 const BUY_NOW_LABEL = {
   om: '🚗 Amma Bitadhu',
   am: '🚗 አሁን ይግዙ',
@@ -105,8 +136,7 @@ async function sendTelegramPhoto(chatId, photoUrl, caption, replyMarkup) {
 
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || body.ok !== true) {
-    const detail = (body && body.description) || res.statusText;
-    throw new Error(`Telegram sendPhoto failed (${res.status}): ${detail}`);
+    throw telegramError('sendPhoto', res.status, body, res.statusText);
   }
   return body.result;
 }
@@ -134,17 +164,49 @@ async function sendTelegramPhoto(chatId, photoUrl, caption, replyMarkup) {
  * @returns {Promise<{total: number, sent: number, failed: number}>}
  */
 async function notifyAllCustomers(data, text, opts = {}) {
-  if (!isConfigured()) return { total: 0, sent: 0, failed: 0 };
+  if (!isConfigured()) return { total: 0, sent: 0, failed: 0, reasons: {} };
   const includeBuyButton = opts.includeBuyButton !== false;
   const recipients = (data.telegramUsers || []).filter(u => !u.banned);
-  const results = await Promise.allSettled(recipients.map(u => {
+  const reasons = {};
+  let sent = 0;
+
+  const sendOne = async (u) => {
     const markup = includeBuyButton ? buyNowButton(u.language) : null;
-    return opts.imageUrl
-      ? sendTelegramPhoto(u.telegramId, opts.imageUrl, text, markup)
-      : sendTelegramMessage(u.telegramId, text, markup);
-  }));
-  const failed = results.filter(r => r.status === 'rejected').length;
-  return { total: recipients.length, sent: recipients.length - failed, failed };
+    try {
+      if (opts.imageUrl) {
+        try {
+          await withRateLimitRetry(() => sendTelegramPhoto(u.telegramId, opts.imageUrl, text, markup));
+          sent++;
+          return;
+        } catch (photoErr) {
+          // Blocked bot / rate limit are not photo problems - let them fall through
+          // to the outer catch. Anything else (e.g. Telegram could not download the
+          // image URL) must not cost this person the whole announcement: send the
+          // text on its own instead.
+          if (photoErr.status === 403 || photoErr.status === 429) throw photoErr;
+          reasons[`photo failed, sent text instead: ${photoErr.message}`] = (reasons[`photo failed, sent text instead: ${photoErr.message}`] || 0) + 1;
+        }
+      }
+      await withRateLimitRetry(() => sendTelegramMessage(u.telegramId, text, markup));
+      sent++;
+    } catch (err) {
+      const key = err.status === 403 ? 'blocked the bot (403)' : err.message;
+      reasons[key] = (reasons[key] || 0) + 1;
+    }
+  };
+
+  // Telegram allows roughly 30 messages/second to different chats. Sending to
+  // everyone at once (the old Promise.allSettled over the whole list) trips
+  // 429 "Too Many Requests" for everyone past that limit, so go in batches of
+  // 20 with a pause between them.
+  const BATCH = 20, GAP_MS = 1100;
+  for (let i = 0; i < recipients.length; i += BATCH) {
+    const started = Date.now();
+    await Promise.all(recipients.slice(i, i + BATCH).map(sendOne));
+    const wait = GAP_MS - (Date.now() - started);
+    if (wait > 0 && i + BATCH < recipients.length) await sleep(wait);
+  }
+  return { total: recipients.length, sent, failed: recipients.length - sent, reasons };
 }
 
 function isConfigured() {
@@ -186,8 +248,7 @@ async function sendTelegramMessage(chatId, text, replyMarkup) {
 
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || body.ok !== true) {
-    const detail = (body && body.description) || res.statusText;
-    throw new Error(`Telegram sendMessage failed (${res.status}): ${detail}`);
+    throw telegramError('sendMessage', res.status, body, res.statusText);
   }
   return body.result;
 }
