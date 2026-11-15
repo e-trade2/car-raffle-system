@@ -31,7 +31,8 @@ const PORT = process.env.PORT || 3000;
 // rather than only printed - and unlike db.json, it's pure entropy with no
 // reason to ever be read or edited by hand, so a dotfile that tooling
 // naturally skips is a better fit than another top-level data file.
-const SESSION_SECRET_FILE = path.join(__dirname, '..', 'data', '.session-secret');
+const { DATA_DIR, UPLOADS_DIR, usingPersistentRoot } = require('./paths');
+const SESSION_SECRET_FILE = path.join(DATA_DIR, '.session-secret');
 function getOrCreateSessionSecret() {
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
   try {
@@ -121,17 +122,20 @@ setInterval(() => {
 // screenshot, etc.) can view it forever with zero access control beyond an
 // unguessable filename. Receipts are only reachable through the
 // authenticated GET /api/orders/:id/receipt route in routes/public.js.
-const uploadsDir = path.join(__dirname, '..', 'uploads');
+const uploadsDir = UPLOADS_DIR;
 const carPhotosDir = path.join(uploadsDir, 'cars');
 if (!fs.existsSync(carPhotosDir)) fs.mkdirSync(carPhotosDir, { recursive: true });
-app.use('/uploads/cars', express.static(carPhotosDir));
+// Filenames are unique (timestamp + random id) and never reused, so browsers
+// and CDNs can cache these for a year - repeat visitors cost zero bandwidth.
+const UPLOAD_CACHE = { maxAge: '365d', immutable: true };
+app.use('/uploads/cars', express.static(carPhotosDir, UPLOAD_CACHE));
 
 // Same public/no-access-control reasoning as car photos above - announcement
 // photos are marketing/informational content the admin chose to broadcast
 // to everyone, never anything sensitive like a receipt.
 const announcementPhotosDir = path.join(uploadsDir, 'announcements');
 if (!fs.existsSync(announcementPhotosDir)) fs.mkdirSync(announcementPhotosDir, { recursive: true });
-app.use('/uploads/announcements', express.static(announcementPhotosDir));
+app.use('/uploads/announcements', express.static(announcementPhotosDir, UPLOAD_CACHE));
 
 // API routes
 app.use('/api', publicRoutes);
@@ -177,6 +181,9 @@ function printStartupWarnings() {
   }
   if (!process.env.INTERNAL_API_KEY || !process.env.TELEGRAM_BOT_TOKEN) {
     warnings.push('INTERNAL_API_KEY and/or TELEGRAM_BOT_TOKEN is not set in .env - the Telegram bot will not be able to prefill name/phone in the mini app (POST /telegram/link and /telegram/prefill will just return 503). Fine if you\'re not using the Telegram bot.');
+  }
+  if (process.env.RAILWAY_ENVIRONMENT && !usingPersistentRoot) {
+    warnings.push('No persistent storage is attached - data/ and uploads/ live on Railway\'s ephemeral disk and are WIPED on every restart/redeploy. Add a Volume to this service (Railway sets RAILWAY_VOLUME_MOUNT_PATH automatically), or set DATA_ROOT to a mounted volume path.');
   }
   // Loading here (rather than only when routes need it) also has the side
   // effect of creating data/db.json - and printing the one-time generated
