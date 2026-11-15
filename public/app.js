@@ -893,9 +893,21 @@ function updatePickSub(){
 // tens of thousands of numbers, this would be worth paginating again -
 // not a concern at the sizes this app actually uses.
 async function loadAllNumbers(){
-  const res = await fetch(`${API}/raffles/${currentRaffle.id}/numbers?start=1&end=${currentRaffle.totalNumbers}`);
-  const data = await res.json();
   const grid = document.getElementById('numGrid');
+  let data = null;
+  // Retry once: a deploy/restart briefly returns 502/HTML instead of JSON.
+  for (let attempt = 0; attempt < 2 && !data; attempt++){
+    try {
+      const res = await fetch(`${API}/raffles/${currentRaffle.id}/numbers?start=1&end=${currentRaffle.totalNumbers}`);
+      const json = res.ok ? await res.json() : null;
+      if (json && Array.isArray(json.numbers)) data = json;
+    } catch {}
+    if (!data && attempt === 0) await new Promise(r => setTimeout(r, 1500));
+  }
+  if (!data){
+    showToast('Could not load numbers. Please close and try again.');
+    return;
+  }
   const frag = document.createDocumentFragment();
   data.numbers.forEach(item=>{
     const cell = document.createElement('div');
