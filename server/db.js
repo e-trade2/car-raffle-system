@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const { randomInt } = require('crypto');
 const { nanoid } = require('nanoid');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const { DATA_DIR } = require('./paths');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 
 // Empty folders don't survive zip/git, so `data/` may not exist on a fresh
@@ -64,6 +64,11 @@ function defaultData() {
   }
 
   return {
+    // True only for a brand-new default database. Cleared on the first save
+    // that contains an order. supabase-sync.js uses it so a wiped/empty
+    // install can never be mistaken for "newer real data" and overwrite the
+    // cloud backup.
+    _freshInstall: true,
     admins: [
       {
         id: nanoid(8),
@@ -337,6 +342,11 @@ function deleteAnnouncement(data, id) {
 function save(data) {
   // Node is single-threaded and writeFileSync is synchronous, so this is
   // safe against concurrent corruption for this app's request volume.
+  // Stamp every save so startup can tell which copy (local vs cloud) is newer.
+  data._savedAt = new Date().toISOString();
+  if (data._freshInstall && Array.isArray(data.orders) && data.orders.length > 0) {
+    delete data._freshInstall;
+  }
   const tmpFile = DATA_FILE + '.tmp';
   fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2));
   fs.renameSync(tmpFile, DATA_FILE);
