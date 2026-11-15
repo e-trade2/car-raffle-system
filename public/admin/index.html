@@ -274,6 +274,18 @@
   <!-- SETTINGS -->
   <div class="panel" id="settingsPanel">
     <div class="card">
+      <h3>Backup &amp; Restore</h3>
+      <p style="font-size:13px;opacity:.8;margin:0 0 10px;">Download a full backup of all raffles, orders and customers. Do this regularly and keep the file somewhere safe &mdash; it contains customer phone numbers, so don't share it.</p>
+      <a class="btn-gold" id="downloadBackupBtn" href="/api/admin/backup" download style="display:inline-block;max-width:260px;text-align:center;text-decoration:none;">Download backup</a>
+      <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:16px 0;">
+      <label>Restore from a backup file <span style="opacity:.7;">(replaces ALL current data)</span></label>
+      <input type="file" id="restoreFile" accept="application/json,.json">
+      <label>Current Password</label>
+      <input type="password" id="restorePass" autocomplete="current-password">
+      <button class="btn-gold" id="restoreBtn" style="max-width:220px;">Restore backup</button>
+      <div id="restoreMsg" style="margin-top:8px;font-size:13px;"></div>
+    </div>
+    <div class="card">
       <h3>Change Username</h3>
       <label>Current Password</label>
       <div class="pw-wrap">
