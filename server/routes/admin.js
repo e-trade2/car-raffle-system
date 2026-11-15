@@ -9,7 +9,9 @@ const db = require('../db');
 const { publicRaffle, verifyUploadedImage, handleUpload, numberStatus, randomAvailableNumbers, maskWinnerName } = require('../utils');
 const { reportLockout, sendMail } = require('../alerts');
 const { notifyCustomer, notifyAllCustomers, notifyAdmin, findChatIdByUsername, sendTelegramMessage, isConfigured, buyNowButton } = require('../telegram');
-const { getClient: getSupabaseClient } = require('../supabase-sync');
+const { getClient: getSupabaseClient, getStorageClient } = require('../supabase-sync');
+const { optimizeImage } = require('../image-optimize');
+const { UPLOADS_DIR, DATA_DIR } = require('../paths');
 
 const router = express.Router();
 
@@ -18,7 +20,7 @@ const router = express.Router();
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-password-just-for-timing', 10);
 
 // ---- Car photo upload (raffle images) ----
-const carPhotosDir = path.join(__dirname, '..', '..', 'uploads', 'cars');
+const carPhotosDir = path.join(UPLOADS_DIR, 'cars');
 if (!fs.existsSync(carPhotosDir)) fs.mkdirSync(carPhotosDir, { recursive: true });
 
 const carPhotoStorage = multer.diskStorage({
@@ -51,7 +53,7 @@ const CAR_PHOTOS_BUCKET = 'car-photos';
 let carPhotosBucketEnsured = false;
 async function ensureCarPhotosBucket() {
   if (carPhotosBucketEnsured) return;
-  const supabase = getSupabaseClient();
+  const supabase = getStorageClient();
   if (!supabase) return;
   try {
     const { error } = await supabase.storage.createBucket(CAR_PHOTOS_BUCKET, { public: true });
@@ -71,7 +73,7 @@ ensureCarPhotosBucket();
 // sharing "cars" storage, since these images are conceptually unrelated to
 // any raffle - an announcement can be a plain text update with no car
 // involved at all).
-const announcementPhotosDir = path.join(__dirname, '..', '..', 'uploads', 'announcements');
+const announcementPhotosDir = path.join(UPLOADS_DIR, 'announcements');
 if (!fs.existsSync(announcementPhotosDir)) fs.mkdirSync(announcementPhotosDir, { recursive: true });
 
 const announcementPhotoStorage = multer.diskStorage({
@@ -95,7 +97,7 @@ const ANNOUNCEMENT_PHOTOS_BUCKET = 'announcement-photos';
 let announcementPhotosBucketEnsured = false;
 async function ensureAnnouncementPhotosBucket() {
   if (announcementPhotosBucketEnsured) return;
-  const supabase = getSupabaseClient();
+  const supabase = getStorageClient();
   if (!supabase) return;
   try {
     const { error } = await supabase.storage.createBucket(ANNOUNCEMENT_PHOTOS_BUCKET, { public: true });
@@ -485,6 +487,57 @@ router.post('/telegram/link-account', requireAuth, async (req, res) => {
 // everything below requires auth
 router.use(requireAuth);
 
+// ---- Backup / restore ----
+// Download the entire database (raffles, orders, customers, admin accounts)
+// as one JSON file. Keep copies somewhere off the server - a Railway Volume
+// protects against restarts/redeploys, not against deleting the volume.
+// NOTE: the file contains customer phone numbers and the admin password
+// hash - treat it like a password.
+router.get('/backup', (req, res) => {
+  const data = db.load();
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="raffle-backup-${stamp}.json"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(JSON.stringify(data, null, 2));
+});
+
+// Replace the whole database with a previously downloaded backup (or with a
+// raw copy of data/db.json). Requires the current password, and always keeps
+// a safety copy of what it replaced (data/db.pre-restore-<time>.json).
+const uploadBackup = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+router.post('/restore', handleUpload(uploadBackup.single('backup')), (req, res) => {
+  const current = db.load();
+  const admin = current.admins.find(a => a.id === req.session.adminId);
+  if (!admin || !bcrypt.compareSync((req.body && req.body.currentPassword) || '', admin.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Choose a backup .json file first' });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(req.file.buffer.toString('utf-8'));
+  } catch {
+    return res.status(400).json({ error: 'That file is not valid JSON' });
+  }
+  if (!parsed || !Array.isArray(parsed.admins) || parsed.admins.length === 0 ||
+      !Array.isArray(parsed.raffles) || !Array.isArray(parsed.orders)) {
+    return res.status(400).json({ error: 'That file does not look like a raffle backup (missing admins/raffles/orders)' });
+  }
+
+  const safetyCopy = path.join(DATA_DIR, `db.pre-restore-${Date.now()}.json`);
+  fs.writeFileSync(safetyCopy, JSON.stringify(current, null, 2));
+
+  delete parsed._freshInstall; // this is real data, never "fresh"
+  db.save(parsed);
+  res.json({
+    ok: true,
+    raffles: parsed.raffles.length,
+    orders: parsed.orders.length,
+    note: 'Restored. If the backup has different admin credentials you will need to log in again with those.'
+  });
+});
+
 // ---- Dashboard summary ----
 router.get('/summary', (req, res) => {
   const data = db.load();
@@ -580,14 +633,19 @@ router.post('/announcements/photo', handleUpload(uploadAnnouncementPhoto.single(
   verifyUploadedImage(req.file.path, async (verifyErr) => {
     if (verifyErr) return res.status(400).json({ error: verifyErr.message });
 
-    const supabase = getSupabaseClient();
+    const opt = await optimizeImage(req.file.path, req.file.mimetype);
+    req.file.path = opt.path;
+    req.file.filename = opt.filename;
+    req.file.mimetype = opt.mimetype;
+
+    const supabase = getStorageClient();
     if (supabase) {
       try {
         const fileBuffer = fs.readFileSync(req.file.path);
         const objectPath = req.file.filename;
         const { error: uploadErr } = await supabase.storage
           .from(ANNOUNCEMENT_PHOTOS_BUCKET)
-          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
+          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false, cacheControl: '31536000' });
         fs.unlink(req.file.path, () => {});
         if (uploadErr) {
           console.warn('⚠️  Supabase announcement photo upload failed:', uploadErr.message);
@@ -686,14 +744,19 @@ router.post('/raffles/photo', handleUpload(uploadCarPhoto.single('photo')), asyn
   verifyUploadedImage(req.file.path, async (verifyErr) => {
     if (verifyErr) return res.status(400).json({ error: verifyErr.message });
 
-    const supabase = getSupabaseClient();
+    const opt = await optimizeImage(req.file.path, req.file.mimetype);
+    req.file.path = opt.path;
+    req.file.filename = opt.filename;
+    req.file.mimetype = opt.mimetype;
+
+    const supabase = getStorageClient();
     if (supabase) {
       try {
         const fileBuffer = fs.readFileSync(req.file.path);
         const objectPath = req.file.filename;
         const { error: uploadErr } = await supabase.storage
           .from(CAR_PHOTOS_BUCKET)
-          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
+          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false, cacheControl: '31536000' });
         fs.unlink(req.file.path, () => {}); // only ever needed locally for the signature check above
         if (uploadErr) {
           console.warn('⚠️  Supabase car photo upload failed:', uploadErr.message);
@@ -1133,7 +1196,7 @@ router.delete('/raffles/:id', (req, res) => {
   const orphanedOrders = data.orders.filter(o => o.raffleId === req.params.id);
   data.orders = data.orders.filter(o => o.raffleId !== req.params.id);
 
-  const uploadsRoot = path.join(__dirname, '..', '..', 'uploads');
+  const uploadsRoot = UPLOADS_DIR;
   for (const order of orphanedOrders) {
     if (!order.receiptPath) continue;
     const filePath = path.join(uploadsRoot, order.receiptPath.replace(/^\/uploads\//, ''));
