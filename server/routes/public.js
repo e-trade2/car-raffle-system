@@ -8,7 +8,9 @@ const db = require('../db');
 const { publicRaffle, numberStatus, randomAvailableNumbers, verifyUploadedImage, handleUpload, verifyTelegramInitData } = require('../utils');
 const { reportLockout } = require('../alerts');
 const { notifyAdmin } = require('../telegram');
-const { getClient: getSupabaseClient } = require('../supabase-sync');
+const { getClient: getSupabaseClient, getStorageClient } = require('../supabase-sync');
+const { optimizeImage } = require('../image-optimize');
+const { UPLOADS_DIR } = require('../paths');
 
 const router = express.Router();
 
@@ -26,7 +28,7 @@ const RECEIPT_BUCKET = 'receipts';
 let bucketEnsured = false;
 async function ensureReceiptBucket() {
   if (bucketEnsured) return;
-  const supabase = getSupabaseClient();
+  const supabase = getStorageClient();
   if (!supabase) return;
   try {
     const { error } = await supabase.storage.createBucket(RECEIPT_BUCKET, { public: false });
@@ -43,7 +45,7 @@ async function ensureReceiptBucket() {
 }
 ensureReceiptBucket();
 
-const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+const uploadsDir = UPLOADS_DIR;
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -403,14 +405,20 @@ router.post('/orders/:id/payment', (req, res, next) => {
   verifyUploadedImage(req.file.path, async (verifyErr) => {
     if (verifyErr) return res.status(400).json({ error: verifyErr.message });
 
-    const supabase = getSupabaseClient();
+    // Shrink the photo before storing it (phone photos are 3-8 MB).
+    const opt = await optimizeImage(req.file.path, req.file.mimetype);
+    req.file.path = opt.path;
+    req.file.filename = opt.filename;
+    req.file.mimetype = opt.mimetype;
+
+    const supabase = getStorageClient();
     if (supabase) {
       try {
         const fileBuffer = fs.readFileSync(req.file.path);
         const objectPath = req.file.filename; // already unique: Date.now()_nanoid.ext
         const { error: uploadErr } = await supabase.storage
           .from(RECEIPT_BUCKET)
-          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false });
+          .upload(objectPath, fileBuffer, { contentType: req.file.mimetype, upsert: false, cacheControl: '31536000' });
         // The local copy was only ever needed for verifyUploadedImage above -
         // clean it up either way now, since uploadsDir doesn't survive a
         // restart anyway and there's no reason to let it pile up meanwhile.
