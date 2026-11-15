@@ -501,6 +501,9 @@ router.get('/orders/:id/receipt', async (req, res) => {
     if (error || !fileBlob) return res.status(404).json({ error: 'Receipt not found' });
     const arrayBuffer = await fileBlob.arrayBuffer();
     res.setHeader('Content-Type', fileBlob.type || 'application/octet-stream');
+    // Receipts never change once uploaded: let the browser cache them so each
+    // re-view doesn't re-download the file from Supabase Storage (egress).
+    res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
     return res.send(Buffer.from(arrayBuffer));
   }
 
