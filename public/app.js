@@ -348,7 +348,7 @@ function renderAnnouncementsSection(){
           <div class="winner-card-id">👤 ${esc(a.winner.name)}${a.winner.phone ? ` · ${esc(a.winner.phone)}` : ''}</div>
           <div class="winner-card-trophy">🏆</div>
         </div>
-        ${a.imageUrl ? `<img src="${esc(a.imageUrl)}" style="width:100%;border-radius:10px;margin:8px 0;display:block;">` : ''}
+        ${a.imageUrl ? `<img loading="lazy" decoding="async" src="${esc(a.imageUrl)}" style="width:100%;border-radius:10px;margin:8px 0;display:block;">` : ''}
         ${a.winner.lottery ? `
         <div class="winner-card-field">
           <div class="winner-card-field-label">${t('lotteryLbl')}</div>
@@ -372,7 +372,7 @@ function renderAnnouncementsSection(){
       return `
       <div class="raffle-ann-card" data-open-raffle="${esc(r.id)}">
         <div class="raffle-ann-media">
-          ${r.imageUrl ? `<img src="${esc(r.imageUrl)}" alt="${esc(r.title)}">` : `<div class="raffle-ann-media-fallback">🚗</div>`}
+          ${r.imageUrl ? `<img loading="lazy" decoding="async" src="${esc(r.imageUrl)}" alt="${esc(r.title)}">` : `<div class="raffle-ann-media-fallback">🚗</div>`}
         </div>
         <div class="raffle-ann-body">
           <div class="raffle-ann-tag">${t('newBadgeLbl')} · ${t('newRaffleLbl')}</div>
@@ -393,7 +393,7 @@ function renderAnnouncementsSection(){
       <div class="notif-icon notif-${a.type || 'update'}-icon">${ANN_ICON[a.type] || '📢'}</div>
       <div class="notif-card-body">
         <div class="notif-card-title">${esc(a.title)}</div>
-        ${a.imageUrl ? `<img src="${esc(a.imageUrl)}" style="width:100%;border-radius:10px;margin:6px 0;display:block;">` : ''}
+        ${a.imageUrl ? `<img loading="lazy" decoding="async" src="${esc(a.imageUrl)}" style="width:100%;border-radius:10px;margin:6px 0;display:block;">` : ''}
         <div class="notif-card-msg">${esc(a.message)}</div>
         <div class="notif-card-sub">${new Date(a.createdAt).toLocaleString()}</div>
       </div>
@@ -635,7 +635,7 @@ let homeTabFilter = 'all';
 function miniCardHtml(raffle){
   const badge = raffle.badge === 'hot' ? `<span class="mini-card-badge">🔥 ${t('tabFeaturedLbl')}</span>`
     : raffle.badge === 'new' ? `<span class="mini-card-badge">${t('newBadgeLbl')}</span>` : '';
-  const img = raffle.imageUrl ? `<img class="mini-card-img" src="${esc(raffle.imageUrl)}" alt="${esc(raffle.title)}">` : `<div class="mini-card-img"></div>`;
+  const img = raffle.imageUrl ? `<img class="mini-card-img" loading="lazy" decoding="async" src="${esc(raffle.imageUrl)}" alt="${esc(raffle.title)}">` : `<div class="mini-card-img"></div>`;
   return `
   <div class="mini-card" data-open-detail="${raffle.id}">
     ${img}
