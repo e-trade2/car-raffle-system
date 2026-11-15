@@ -842,3 +842,34 @@ document.querySelectorAll('.pw-toggle').forEach(btn=>{
 });
 
 checkAuth();
+
+
+// ===== Backup / restore =====
+(function(){
+  const btn = document.getElementById('restoreBtn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const msg = document.getElementById('restoreMsg');
+    const file = document.getElementById('restoreFile').files[0];
+    const pass = document.getElementById('restorePass').value;
+    msg.style.color = '';
+    if (!file) { msg.textContent = 'Choose a backup file first.'; return; }
+    if (!pass) { msg.textContent = 'Enter your current password.'; return; }
+    if (!confirm('This REPLACES all current raffles, orders and customers with the contents of this file. A safety copy of the current data is kept on the server. Continue?')) return;
+    const fd = new FormData();
+    fd.append('backup', file);
+    fd.append('currentPassword', pass);
+    btn.disabled = true;
+    try {
+      const r = await apiForm('/restore', fd);
+      msg.style.color = '#4ade80';
+      msg.textContent = `Restored ${r.raffles} raffle(s) and ${r.orders} order(s). Reloading...`;
+      setTimeout(() => location.reload(), 1500);
+    } catch (e) {
+      msg.style.color = '#f87171';
+      msg.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
